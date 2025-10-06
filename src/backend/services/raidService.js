@@ -1,108 +1,142 @@
 // src/backend/services/raidService.js
+// Business-Logik (Validation, Normalisierung, Titelbau)
+
+const raids = require("../models/raidModel.js");
+const { prisma } = require("../prismaClient.js");
+const { buildRaidTitle } = require("../utils/raidTitle.js");
+
+const VALID_DIFF = new Set(["nhc", "hc", "mythic"]);
+const VALID_LOOT = new Set(["saved", "unsaved", "vip"]);
+
+const norm = (v) => String(v ?? "").trim();
+const normDiff = (v) => norm(v).toLowerCase();
+const normLoot = (v) => norm(v).toLowerCase();
+
+async function list(opts = {}) {
+  return raids.findMany(opts);
+}
+
+async function getById(id) {
+  return raids.findById(id);
+}
+
 /**
- * Service-Layer für Raids
- * - verbindet Model (DB) und View (API-Ausgabe)
- * - enthält Geschäftslogik
+ * Ableitung des Basis-Dungeonnamens:
+ * - client base > presetId.name[first word] > "Manaforge"
  */
+async function resolveBase({ base, presetId }) {
+  const b = norm(base);
+  if (b) return b;
 
-const raidModel = require("../models/raidModel.js");
-const signupModel = require("../models/signupModel.js");
-const raidView = require("../views/raidView.js");
+  const pid = presetId == null ? null : Number(presetId);
+  if (Number.isFinite(pid)) {
+    const preset = await prisma.preset.findUnique({
+      where: { id: pid },
+      select: { name: true },
+    });
+    if (preset?.name) {
+      const first = preset.name.trim().split(/\s+/)[0];
+      if (first) return first;
+    }
+  }
+  return "Manaforge";
+}
 
-exports.getAll = async () => {
-  const raids = await raidModel.findAll();
-  return raidView.toRaidListResponse(raids);
-};
+async function create(input) {
+  if (!input) throw new Error("INVALID_PAYLOAD");
 
-exports.getById = async (id) => {
-  const raid = await raidModel.findById(id);
-  return raidView.toRaidResponse(raid);
-};
+  const difficulty = normDiff(input.difficulty);
+  const lootType = normLoot(input.lootType);
+  if (!VALID_DIFF.has(difficulty)) throw new Error("INVALID_DIFFICULTY");
+  if (!VALID_LOOT.has(lootType)) throw new Error("INVALID_LOOT");
 
-/**
- * Vollansicht: Basisdaten + aufgeteilte Signups
- * → Greift auf row.signups zurück, falls das Model Relationen inkludiert
- * → Fällt andernfalls auf signupModel.findByRaid(id) zurück
- * → Gibt NIE null-Arrays zurück
- */
-exports.getFull = async (id) => {
-  const row = await raidModel.findById(id);
-  if (!row) return null;
-
-  // Basisdaten
-  const raid = raidView.toRaidResponse(row);
-
-  // Quelle für Signups bestimmen (row.signups oder separater Fetch)
-  let signupsRaw = Array.isArray(row.signups) ? row.signups : null;
-  if (!signupsRaw) {
-    signupsRaw = await signupModel.findByRaid(id);
+  let bosses = 8;
+  if (difficulty === "mythic") {
+    const b = Number(input.bosses);
+    if (!Number.isFinite(b) || b < 1 || b > 8) throw new Error("INVALID_BOSSES");
+    bosses = b;
   }
 
-  const roster = [];
-  const waiting = [];
+  const when =
+    input.date instanceof Date ? input.date : new Date(norm(input.date));
+  if (isNaN(when.getTime())) throw new Error("INVALID_DATE");
 
-  for (const s of signupsRaw) {
-    const mapped = {
-      id: s.id,
-      userId: s.userId || s.user?.discordId || null,
-      displayName: s.displayName || s.user?.displayName || s.user?.username || null,
-      role: s.type, // TANK | HEAL | DPS | LOOTBUDDY
-      class: s.class || s.char?.class || null,
-      charId: s.charId || null,
-      charName: s.char?.name || null,
-      itemLevel: s.char?.itemLevel ?? null,
-      wclUrl: s.char?.wclUrl || null,
-      saved: !!s.saved,
-      note: s.note || null,
-      status: s.status, // SIGNUPED | PICKED
-    };
-    if (String(s.status).toUpperCase() === "PICKED") roster.push(mapped);
-    else waiting.push(mapped);
+  const base = await resolveBase({ base: input.base, presetId: input.presetId });
+  const title = buildRaidTitle({ base, difficulty, lootType, bosses });
+
+  return raids.create({
+    title,
+    difficulty,
+    lootType,
+    bosses,
+    date: when,
+    lead: norm(input.lead) || null,
+    presetId: input.presetId ?? null,
+  });
+}
+
+async function update(id, patch) {
+  const raid = await raids.findById(id);
+  if (!raid) throw new Error("NOT_FOUND");
+
+  const data = {};
+
+  if (patch.difficulty != null) {
+    const d = normDiff(patch.difficulty);
+    if (!VALID_DIFF.has(d)) throw new Error("INVALID_DIFFICULTY");
+    data.difficulty = d;
+  }
+  if (patch.lootType != null) {
+    const l = normLoot(patch.lootType);
+    if (!VALID_LOOT.has(l)) throw new Error("INVALID_LOOT");
+    data.lootType = l;
+  }
+  if (patch.date != null) {
+    const when = patch.date instanceof Date ? patch.date : new Date(norm(patch.date));
+    if (isNaN(when.getTime())) throw new Error("INVALID_DATE");
+    data.date = when;
+  }
+  if (patch.lead !== undefined) data.lead = norm(patch.lead) || null;
+  if (patch.presetId !== undefined) data.presetId = patch.presetId ?? null;
+
+  // Bosse-Logik
+  if (data.difficulty === "mythic" || raid.difficulty === "mythic" || patch.bosses != null) {
+    const diff = data.difficulty || raid.difficulty;
+    if (diff === "mythic") {
+      const b = patch.bosses != null ? Number(patch.bosses) : raid.bosses;
+      if (!Number.isFinite(b) || b < 1 || b > 8) throw new Error("INVALID_BOSSES");
+      data.bosses = b;
+    } else {
+      data.bosses = 8;
+    }
   }
 
-  return { raid, roster, signups: waiting };
-};
+  // Titel ggf. neu generieren (wenn eine der relevanten Sachen geändert wurde)
+  const needTitle =
+    data.difficulty != null || data.lootType != null || data.bosses != null || data.presetId !== undefined || patch.base != null;
 
-exports.createRaid = async (data) => {
-  const created = await raidModel.create(data);
-  return raidView.toRaidResponse(created);
-};
-
-exports.updateRaid = async (id, data) => {
-  const updated = await raidModel.update(id, data);
-  return raidView.toRaidResponse(updated);
-};
-
-exports.deleteRaid = async (id) => {
-  const removed = await raidModel.remove(id);
-  return raidView.toRaidResponse(removed);
-};
-
-/** Booster in Roster aufnehmen */
-exports.pickSignup = async (raidId, signupId) => {
-  // Optional: Validierung, dass Signup wirklich zu raidId gehört
-  const s = await signupModel.findById(signupId);
-  if (!s || Number(s.raidId) !== Number(raidId)) {
-    throw new Error("SIGNUP_NOT_IN_RAID");
+  if (needTitle) {
+    const base = await resolveBase({
+      base: patch.base, // optionaler Override
+      presetId: data.presetId !== undefined ? data.presetId : raid.presetId,
+    });
+    const difficulty = data.difficulty || raid.difficulty;
+    const lootType = data.lootType || raid.lootType;
+    const bosses = data.bosses != null ? data.bosses : raid.bosses;
+    data.title = buildRaidTitle({ base, difficulty, lootType, bosses });
   }
-  const updated = await signupModel.setStatus(signupId, "PICKED");
-  return {
-    id: updated.id,
-    raidId: updated.raidId,
-    status: updated.status,
-  };
-};
 
-/** Booster aus Roster entfernen (zurück in Signups) */
-exports.unpickSignup = async (raidId, signupId) => {
-  const s = await signupModel.findById(signupId);
-  if (!s || Number(s.raidId) !== Number(raidId)) {
-    throw new Error("SIGNUP_NOT_IN_RAID");
-  }
-  const updated = await signupModel.setStatus(signupId, "SIGNUPED");
-  return {
-    id: updated.id,
-    raidId: updated.raidId,
-    status: updated.status,
-  };
+  return raids.update(id, data);
+}
+
+async function remove(id) {
+  return raids.remove(id);
+}
+
+module.exports = {
+  list,
+  getById,
+  create,
+  update,
+  remove,
 };

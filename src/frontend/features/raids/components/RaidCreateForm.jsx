@@ -1,15 +1,7 @@
+// src/frontend/features/raids/components/RaidCreateForm.jsx
 import React, { useEffect, useMemo, useState } from "react";
 
-/**
- * RaidCreateForm – UI-komponente (keine API-Calls)
- *
- * Props:
- *  - presets:       [{ id, name, ... }]
- *  - leads:         [{ id|discordId, displayName|username }]
- *  - onCreate(form) -> Promise|void
- *  - defaultLeadId: string|null
- */
-
+// UI Klassen
 const card =
   "rounded-2xl border border-zinc-800 bg-zinc-900/60 shadow-[0_10px_30px_-15px_rgba(0,0,0,0.6)]";
 const sectionTitle =
@@ -22,6 +14,7 @@ const label = "text-xs font-medium text-zinc-300 mb-1 block";
 const btnPrimary =
   "inline-flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white px-3.5 py-2 text-sm font-semibold shadow-sm transition-colors";
 
+// Vorgaben
 const DIFFICULTIES = ["NHC", "HC", "Mythic"];
 const LOOT_OPTIONS = [
   { value: "saved", label: "Saved" },
@@ -37,26 +30,20 @@ export default function RaidCreateForm({
 }) {
   const [form, setForm] = useState({
     presetId: "",
-    title: "",
     date: "",
     time: "",
     difficulty: "HC",
-    loot: "vip",
+    lootType: "vip",
     leadId: defaultLeadId || "",
-    mythicBosses: 1, // nur relevant bei Mythic
+    mythicBosses: 1,
   });
 
-  // Hat der User Titel manuell überschrieben?
-  const [titleDirty, setTitleDirty] = useState(false);
-
-  // Aktives Preset
+  // aktives Preset + Dungeon-Basis (erstes Wort) oder Default
   const activePreset = useMemo(
     () => presets.find((p) => String(p.id) === String(form.presetId)) || null,
     [presets, form.presetId]
   );
-
-  // Dungeon-Name: aus Preset (erstes Wort) oder Default "Manaforge"
-  const dungeonName = useMemo(() => {
+  const base = useMemo(() => {
     if (activePreset?.name) {
       const tok = activePreset.name.trim().split(/\s+/)[0];
       if (tok) return tok;
@@ -64,28 +51,15 @@ export default function RaidCreateForm({
     return "Manaforge";
   }, [activePreset]);
 
-  // Label für Loot
-  const lootLabel = useMemo(() => {
-    const f = LOOT_OPTIONS.find((x) => x.value === form.loot);
-    return f ? f.label : form.loot;
-  }, [form.loot]);
-
-  // Anzahl Bosse je nach Schwierigkeit
-  const totalBosses = 8; // fix
-  const shownBosses =
-    form.difficulty === "Mythic" ? form.mythicBosses : totalBosses;
-
-  // Titel zusammenbauen, solange nicht manuell überschrieben
-  useEffect(() => {
-    if (titleDirty) return;
-
-    let t = `${dungeonName} ${form.difficulty} ${lootLabel}`;
-    if (form.difficulty === "Mythic") {
-      t += ` ${shownBosses}/${totalBosses}`;
+  // Live-Titel-Vorschau (Backend generiert final!)
+  const previewTitle = useMemo(() => {
+    const diff = form.difficulty;
+    const loot = (LOOT_OPTIONS.find((o) => o.value === form.lootType)?.label) ?? form.lootType;
+    if (diff === "Mythic") {
+      return `${base} Mythic ${loot} ${form.mythicBosses}/8`;
     }
-    setForm((f) => ({ ...f, title: t.trim() }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dungeonName, form.difficulty, lootLabel, shownBosses, titleDirty]);
+    return `${base} ${diff} ${loot}`;
+  }, [base, form.difficulty, form.lootType, form.mythicBosses]);
 
   function patch(name, value) {
     setForm((f) => ({ ...f, [name]: value }));
@@ -104,6 +78,7 @@ export default function RaidCreateForm({
       return;
     }
 
+    // ISO-Zeit bauen (Browser-Lokalzeit → ISO; finale TZ-Logik kann Server übernehmen)
     const [hh, mm] = (form.time || "").split(":").map((v) => parseInt(v, 10));
     const when = new Date(
       `${form.date}T${String(hh).padStart(2, "0")}:${String(mm).padStart(
@@ -113,17 +88,27 @@ export default function RaidCreateForm({
     );
 
     const payload = {
-      presetId: form.presetId || null,
-      title: form.title.trim(),
-      difficulty: form.difficulty, // "NHC" | "HC" | "Mythic"
+      base, // Dungeon-Basis
+      presetId: form.presetId ? Number(form.presetId) : null,
+      difficulty: form.difficulty, // "NHC"|"HC"|"Mythic"
+      lootType: form.lootType, // "saved"|"unsaved"|"vip"
       bosses: form.difficulty === "Mythic" ? Number(form.mythicBosses) : 8,
-      lootType: form.loot, // saved|unsaved|vip
       date: when.toISOString(),
-      lead: form.leadId, // discordId o.ä.
+      lead: form.leadId, // z. B. Discord-ID
     };
 
     await onCreate(payload);
   }
+
+  // Wenn Difficulty von Mythic weggeht, sicherheitshalber Bosse wieder auf 8
+  useEffect(() => {
+    if (form.difficulty !== "Mythic" && form.mythicBosses !== 8) {
+      setForm((f) => ({ ...f, mythicBosses: 8 }));
+    }
+    if (form.difficulty === "Mythic" && (form.mythicBosses < 1 || form.mythicBosses > 8)) {
+      setForm((f) => ({ ...f, mythicBosses: 1 }));
+    }
+  }, [form.difficulty]);
 
   return (
     <form onSubmit={handleSubmit} className={`${card} p-5 md:p-6`}>
@@ -132,25 +117,14 @@ export default function RaidCreateForm({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        {/* Titel (auto) */}
+        {/* Titel (read-only Preview) */}
         <div className="col-span-1">
           <label className={label}>Titel (automatisch)</label>
-          <input
-            className={inputBase}
-            value={form.title}
-            onChange={(e) => {
-              setTitleDirty(true);
-              patch("title", e.target.value);
-            }}
-            placeholder={`${dungeonName} ${form.difficulty} ${lootLabel}${
-              form.difficulty === "Mythic"
-                ? ` ${form.mythicBosses}/${totalBosses}`
-                : ""
-            }`}
-          />
+          <input className={inputBase} value={previewTitle} readOnly />
           <p className={helpText}>
-            Format: <code>Manaforge HC VIP</code> oder{" "}
-            <code>Manaforge Mythic VIP 2/8</code>.
+            Finaler Titel wird serverseitig generiert (z. B.{" "}
+            <code>Manaforge HC VIP</code> oder{" "}
+            <code>Manaforge Mythic VIP 2/8</code>).
           </p>
         </div>
 
@@ -181,8 +155,8 @@ export default function RaidCreateForm({
           <label className={label}>Loot</label>
           <select
             className={selectBase}
-            value={form.loot}
-            onChange={(e) => patch("loot", e.target.value)}
+            value={form.lootType}
+            onChange={(e) => patch("lootType", e.target.value)}
           >
             {LOOT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -192,7 +166,7 @@ export default function RaidCreateForm({
           </select>
         </div>
 
-        {/* Difficulty + (bei Mythic) Boss-Dropdown */}
+        {/* Difficulty + Bosse */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={label}>Difficulty</label>
@@ -219,7 +193,7 @@ export default function RaidCreateForm({
               >
                 {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
                   <option key={n} value={n}>
-                    {n}/{totalBosses}
+                    {n}/8
                   </option>
                 ))}
               </select>
@@ -234,7 +208,7 @@ export default function RaidCreateForm({
 
         {/* Lead */}
         <div>
-          <label className={label}>Raid Lead (aus Server)</label>
+          <label className={label}>Raid Lead</label>
           <select
             className={selectBase}
             value={form.leadId}
@@ -265,7 +239,10 @@ export default function RaidCreateForm({
               </option>
             ))}
           </select>
-          <p className={helpText}>Dungeon wird aus Preset-Name erkannt.</p>
+          <p className={helpText}>
+            Dungeon-Name wird aus dem Preset (erstes Wort) übernommen. Ohne
+            Preset: <span className="font-medium">Manaforge</span>.
+          </p>
         </div>
       </div>
 

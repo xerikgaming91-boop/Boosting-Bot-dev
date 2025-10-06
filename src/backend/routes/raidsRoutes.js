@@ -1,55 +1,32 @@
 // src/backend/routes/raidsRoutes.js
 /**
  * Raids Routes (MVC)
- * - Controller: src/backend/controllers/raidsController.js
- * - Auth: src/backend/middleware/auth.js (attachUser, requireAuth)
- *
- * Mount in server.js erfolgt unter /api und /api/raids.
- * Die Pfade unten sind relativ zum mount:
- *   GET    /          → list
- *   GET    /:id       → getOne
- *   POST   /          → create           (lead/admin/owner)
- *   PATCH  /:id       → update           (lead/admin/owner)
- *   DELETE /:id       → remove           (lead/admin/owner)
- *   POST   /:raidId/picks/:signupId   → pick    (lead/admin/owner)
- *   DELETE /:raidId/picks/:signupId   → unpick  (lead/admin/owner)
+ * Mount in server.js: unter /api und /api/raids
  */
 
 const express = require("express");
-const router = express.Router();
 const path = require("path");
+const router = express.Router();
 
-const ctrl = require("../controllers/raidsController");
-// 🔧 WICHTIG: Resolver stabil über __dirname + explizite .js-Endung
+const ctrl = require("../controllers/raidsController.js");
 const { attachUser, requireAuth } = require(path.join(__dirname, "../middlewares/auth.js"));
 
-// Session-User (aus Cookie/Header) anhängen
+// Session-User anhängen (für Rollenprüfung downstream)
 router.use(attachUser);
 
-/* ------------------------------- Reads ---------------------------------- */
-
-// Liste aller Raids (öffentlich)
+// Öffentliche Reads
 router.get("/", ctrl.list);
+router.get("/:id", ctrl.getById);
 
-// „Full“-Detail eines Raids (öffentlich)
-router.get("/:id", ctrl.getOne);
-
-/* ------------------------------ Writes ---------------------------------- */
-
-// Anlegen (nur eingeloggte; Rollen-Check macht Controller)
+// Writes (nur eingeloggte; Rolle ggf. in Middleware/Controller prüfen)
 router.post("/", requireAuth, ctrl.create);
-
-// Patch (nur eingeloggte; Rollen-Check macht Controller)
 router.patch("/:id", requireAuth, ctrl.update);
-
-// Löschen (nur eingeloggte; Rollen-Check macht Controller)
 router.delete("/:id", requireAuth, ctrl.remove);
 
-// Picks (nur eingeloggte; Rollen-Check macht Controller)
-router.post("/:raidId/picks/:signupId", requireAuth, ctrl.pick);
-router.delete("/:raidId/picks/:signupId", requireAuth, ctrl.unpick);
-
-/* ------------------------------ Export ---------------------------------- */
+// Falls du Picks an dieser Stelle haben willst, bitte im Signups-Feature lassen,
+// oder hier bewusst einhängen und im Service kapseln:
+// router.post("/:raidId/picks/:signupId", requireAuth, ctrl.pick);
+// router.delete("/:raidId/picks/:signupId", requireAuth, ctrl.unpick);
 
 module.exports = {
   basePath: "/raids",
