@@ -3,7 +3,6 @@
  * Raids Routes (MVC)
  * Mount in server.js: unter /api und /api/raids
  */
-
 const express = require("express");
 const path = require("path");
 const router = express.Router();
@@ -16,17 +15,14 @@ router.use(attachUser);
 
 // Öffentliche Reads
 router.get("/", ctrl.list);
-router.get("/:id", ctrl.getById);
+
+// ⚠️ Nur numerische IDs erlauben – vermeidet /undefined → INVALID_ID
+router.get("/:id(\\d+)", ctrl.getById);
 
 // Writes (nur eingeloggte; Rolle ggf. in Middleware/Controller prüfen)
 router.post("/", requireAuth, ctrl.create);
-router.patch("/:id", requireAuth, ctrl.update);
-router.delete("/:id", requireAuth, ctrl.remove);
-
-// Falls du Picks an dieser Stelle haben willst, bitte im Signups-Feature lassen,
-// oder hier bewusst einhängen und im Service kapseln:
-// router.post("/:raidId/picks/:signupId", requireAuth, ctrl.pick);
-// router.delete("/:raidId/picks/:signupId", requireAuth, ctrl.unpick);
+router.patch("/:id(\\d+)", requireAuth, ctrl.update);
+router.delete("/:id(\\d+)", requireAuth, ctrl.remove);
 
 module.exports = {
   basePath: "/raids",

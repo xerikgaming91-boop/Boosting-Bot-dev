@@ -1,64 +1,65 @@
 // src/frontend/app/api/raidsService.js
+// Frontend-API für Raids (fetch wrappers)
 
-const JSON_HEADERS = { "Accept": "application/json", "Content-Type": "application/json" };
+const API_BASE = import.meta?.env?.VITE_API_BASE || "";
 
-async function toJson(res) {
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data?.ok === false) {
-    const err = new Error(data?.error || `HTTP_${res.status}`);
-    err.status = res.status;
-    err.payload = data;
-    throw err;
+/**
+ * interner Helper
+ * - hängt automatisch /api davor
+ * - sendet Credentials (Session-Cookie)
+ */
+async function http(path, opts = {}) {
+  const res = await fetch(`${API_BASE}/api${path}`, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+
+  const isJson = res.headers.get("content-type")?.includes("application/json");
+  const body = isJson ? await res.json().catch(() => ({})) : null;
+
+  if (!res.ok) {
+    const msg = body?.error || `${res.status} ${res.statusText}`;
+    throw new Error(msg);
   }
-  return data;
+  return body;
 }
 
-/** Liste aller Raids (optional: query params später ergänzbar) */
+/** Liste aller Raids (öffentlich) */
 export async function apiListRaids() {
-  const res = await fetch("/api/raids", {
-    credentials: "include",
-    headers: { "Accept": "application/json" },
-  });
-  return toJson(res); // { ok:true, raids:[...] }
+  const data = await http(`/raids`, { method: "GET" });
+  return Array.isArray(data?.raids) ? data.raids : [];
 }
 
-/** Einzelnen Raid lesen */
-export async function apiGetRaid(id) {
-  const res = await fetch(`/api/raids/${encodeURIComponent(id)}`, {
-    credentials: "include",
-    headers: { "Accept": "application/json" },
-  });
-  return toJson(res); // { ok:true, raid:{...} }
+/** Einzelnen Raid lesen (öffentlich) */
+export async function apiGetRaidById(id) {
+  if (!id && id !== 0) throw new Error("id_required");
+  const data = await http(`/raids/${id}`, { method: "GET" });
+  return data?.raid || null;
 }
 
-/** Raid erstellen */
+/** Raid anlegen (geschützt) */
 export async function apiCreateRaid(payload) {
-  const res = await fetch("/api/raids", {
+  const data = await http(`/raids`, {
     method: "POST",
-    credentials: "include",
-    headers: JSON_HEADERS,
-    body: JSON.stringify(payload || {}),
+    body: JSON.stringify(payload ?? {}),
   });
-  return toJson(res); // { ok:true, raid:{...} }
+  return data?.raid || null;
 }
 
-/** Raid aktualisieren */
+/** Raid aktualisieren (geschützt) */
 export async function apiUpdateRaid(id, patch) {
-  const res = await fetch(`/api/raids/${encodeURIComponent(id)}`, {
+  if (!id && id !== 0) throw new Error("id_required");
+  const data = await http(`/raids/${id}`, {
     method: "PATCH",
-    credentials: "include",
-    headers: JSON_HEADERS,
-    body: JSON.stringify(patch || {}),
+    body: JSON.stringify(patch ?? {}),
   });
-  return toJson(res); // { ok:true, raid:{...} }
+  return data?.raid || null;
 }
 
-/** Raid löschen */
+/** Raid löschen (geschützt) */
 export async function apiDeleteRaid(id) {
-  const res = await fetch(`/api/raids/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    credentials: "include",
-    headers: { "Accept": "application/json" },
-  });
-  return toJson(res); // { ok:true }
+  if (!id && id !== 0) throw new Error("id_required");
+  const data = await http(`/raids/${id}`, { method: "DELETE" });
+  return data?.deleted || null;
 }
