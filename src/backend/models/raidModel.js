@@ -1,114 +1,116 @@
 // src/backend/models/raidModel.js
-// Reines DB-Repository (keine Business-Logik)
+/**
+ * Raid Model (Repository)
+ * - Enthält NUR DB-Zugriffe (Prisma)
+ * - Keine HTTP/Role-Logik; das macht der Controller
+ */
 
 const { prisma } = require("../prismaClient.js");
 
-function map(r) {
-  if (!r) return null;
+/** Mapper: Prisma → flaches JSON */
+function map(row) {
+  if (!row) return null;
   return {
-    id: r.id,
-    title: r.title,
-    difficulty: r.difficulty, // "nhc" | "hc" | "mythic"
-    lootType: r.lootType,     // "saved" | "unsaved" | "vip"
-    bosses: r.bosses,         // 8 (NHC/HC) bzw. 1..8 (Mythic)
-    date: r.date,             // Date
-    lead: r.lead,             // z.B. Discord-ID
-    presetId: r.presetId ?? null,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
+    id: row.id,
+    title: row.title,
+    difficulty: row.difficulty,      // "Normal" | "Heroic" | "Mythic"
+    lootType: row.lootType,          // "saved" | "unsaved" | "vip"
+    bosses: row.bosses ?? 0,         // 0..8
+    date: row.date,
+    lead: row.lead || null,          // discord id (string) oder null
+    presetId: row.presetId ?? null,
+
+    channelId: row.channelId ?? null,
+    messageId: row.messageId ?? null,
+
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
-exports.findMany = async ({ where, orderBy, select } = {}) => {
+/** Liste holen (optional where/orderBy/limit/offset) */
+async function findMany({ where, orderBy, take, skip } = {}) {
   const rows = await prisma.raid.findMany({
     where: where || undefined,
-    orderBy: orderBy || [{ date: "desc" }],
-    select:
-      select ||
-      {
-        id: true,
-        title: true,
-        difficulty: true,
-        lootType: true,
-        bosses: true,
-        date: true,
-        lead: true,
-        presetId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    orderBy: orderBy || [{ date: "asc" }, { id: "asc" }],
+    take: take || undefined,
+    skip: skip || undefined,
   });
   return rows.map(map);
-};
+}
 
-exports.findById = async (id, { select } = {}) => {
-  const raidId = Number(id);
-  if (!Number.isFinite(raidId)) return null;
+/** Einzelnen Raid per ID */
+async function findOne(id) {
   const row = await prisma.raid.findUnique({
-    where: { id: raidId },
-    select:
-      select ||
-      {
-        id: true,
-        title: true,
-        difficulty: true,
-        lootType: true,
-        bosses: true,
-        date: true,
-        lead: true,
-        presetId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    where: { id: Number(id) },
   });
   return map(row);
-};
+}
 
-exports.create = async (data) => {
-  const row = await prisma.raid.create({
-    data,
-    select: {
-      id: true,
-      title: true,
-      difficulty: true,
-      lootType: true,
-      bosses: true,
-      date: true,
-      lead: true,
-      presetId: true,
-      createdAt: true,
-      updatedAt: true,
+/** Anlegen */
+async function create(data) {
+  const saved = await prisma.raid.create({
+    data: {
+      title: String(data.title),
+      difficulty: String(data.difficulty),
+      lootType: String(data.lootType),
+      bosses: Number.isFinite(Number(data.bosses)) ? Number(data.bosses) : 0,
+      date: new Date(data.date),
+      lead: data.lead ?? null,
+      presetId: data.presetId ?? null,
+
+      // optional technisch vorhandene Felder:
+      channelId: data.channelId ?? null,
+      messageId: data.messageId ?? null,
     },
   });
-  return map(row);
-};
+  return map(saved);
+}
 
-exports.update = async (id, data) => {
-  const raidId = Number(id);
-  const row = await prisma.raid.update({
-    where: { id: raidId },
-    data,
-    select: {
-      id: true,
-      title: true,
-      difficulty: true,
-      lootType: true,
-      bosses: true,
-      date: true,
-      lead: true,
-      presetId: true,
-      createdAt: true,
-      updatedAt: true,
+/** Patch/Update */
+async function update(id, patch) {
+  const saved = await prisma.raid.update({
+    where: { id: Number(id) },
+    data: {
+      title: patch.title !== undefined ? patch.title : undefined,
+      difficulty: patch.difficulty !== undefined ? patch.difficulty : undefined,
+      lootType: patch.lootType !== undefined ? patch.lootType : undefined,
+      bosses:
+        patch.bosses !== undefined
+          ? Number.isFinite(Number(patch.bosses))
+            ? Number(patch.bosses)
+            : 0
+          : undefined,
+      date:
+        patch.date !== undefined
+          ? new Date(patch.date)
+          : undefined,
+      lead: patch.lead !== undefined ? patch.lead : undefined,
+      presetId:
+        patch.presetId !== undefined ? patch.presetId : undefined,
+
+      channelId:
+        patch.channelId !== undefined ? patch.channelId : undefined,
+      messageId:
+        patch.messageId !== undefined ? patch.messageId : undefined,
     },
   });
-  return map(row);
-};
+  return map(saved);
+}
 
-exports.remove = async (id) => {
-  const raidId = Number(id);
-  const row = await prisma.raid.delete({
-    where: { id: raidId },
-    select: { id: true },
+/** Löschen */
+async function remove(id) {
+  await prisma.raid.delete({
+    where: { id: Number(id) },
   });
-  return row;
+  return true;
+}
+
+module.exports = {
+  findMany,
+  findOne,
+  create,
+  update,
+  remove,
+  _map: map, // (optional) für Tests
 };

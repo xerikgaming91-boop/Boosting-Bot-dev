@@ -1,28 +1,47 @@
 // src/backend/routes/raidsRoutes.js
 /**
  * Raids Routes (MVC)
- * Mount in server.js: unter /api und /api/raids
+ * Controller:  src/backend/controllers/raidsController.js
+ * Auth:        src/backend/middlewares/auth.js  (attachUser, requireAuth)
+ *
+ * Wird in server.js unter /api und /api/raids gemountet.
  */
+
 const express = require("express");
 const path = require("path");
 const router = express.Router();
 
 const ctrl = require("../controllers/raidsController.js");
+// Wichtig: korrekter Pfad + .js (Windows / require)
 const { attachUser, requireAuth } = require(path.join(__dirname, "../middlewares/auth.js"));
 
-// Session-User anhängen (für Rollenprüfung downstream)
+// Session-User für alle Raid-Routen anhängen
 router.use(attachUser);
 
-// Öffentliche Reads
+/* ------------------------------- Reads ---------------------------------- */
+
+// Liste aller Raids (öffentlich)
 router.get("/", ctrl.list);
 
-// ⚠️ Nur numerische IDs erlauben – vermeidet /undefined → INVALID_ID
-router.get("/:id(\\d+)", ctrl.getById);
+// Detail eines Raids (öffentlich)
+router.get("/:id", ctrl.getOne);
 
-// Writes (nur eingeloggte; Rolle ggf. in Middleware/Controller prüfen)
+/* ------------------------------ Writes ---------------------------------- */
+
+// Anlegen (nur eingeloggte; Rollen-Check macht Controller)
 router.post("/", requireAuth, ctrl.create);
-router.patch("/:id(\\d+)", requireAuth, ctrl.update);
-router.delete("/:id(\\d+)", requireAuth, ctrl.remove);
+
+// Aktualisieren (nur eingeloggte; Rollen-Check macht Controller)
+router.patch("/:id", requireAuth, ctrl.update);
+
+// Löschen (nur eingeloggte; Rollen-Check macht Controller)
+router.delete("/:id", requireAuth, ctrl.remove);
+
+// Picks (nur eingeloggte; Rollen-Check macht Controller)
+router.post("/:raidId/picks/:signupId", requireAuth, ctrl.pick);
+router.delete("/:raidId/picks/:signupId", requireAuth, ctrl.unpick);
+
+/* ------------------------------ Export ---------------------------------- */
 
 module.exports = {
   basePath: "/raids",
