@@ -1,20 +1,36 @@
 // src/frontend/features/raids/hooks/useRaidBootstrap.js
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+// Frontend-HTTP (unter app/api, umbenannt auf *API.js)
 import {
   apiListRaids,
   apiCreateRaid,
   apiUpdateRaid,
   apiDeleteRaid,
-} from "@app/api/raidsService";
-import { apiGetMe, apiGetLeads } from "@app/api/usersService";
+} from "@app/api/raidsAPI";
+import { apiGetMe, apiGetLeads } from "@app/api/usersAPI";
+
+/** stabile Sortierung: erst Datum, dann ID */
+function sortRaids(a, b) {
+  const da = new Date(a.date).getTime();
+  const db = new Date(b.date).getTime();
+  if (da !== db) return da - db;
+  return Number(a.id) - Number(b.id);
+}
 
 /**
  * useRaidBootstrap
- * Lädt initial:
- *  - aktuellen User (für Rechte)
- *  - mögliche Leads (Dropdown)
- *  - Raids (Liste)
- * Bietet Create/Update/Delete und Helper für Rollenchecks.
+ * - lädt initial User, Leads und Raids
+ * - kapselt Create/Update/Delete
+ * - stellt Role-Helper bereit
+ *
+ * Erwartete API-Formate:
+ *   apiGetMe()            -> { user }
+ *   apiGetLeads()         -> { leads: [] }
+ *   apiListRaids()        -> Raid[]               (Array direkt!)
+ *   apiCreateRaid(data)   -> Raid                 (Objekt)
+ *   apiUpdateRaid(id, d)  -> Raid                 (Objekt)
+ *   apiDeleteRaid(id)     -> true | { ok:true }
  */
 export function useRaidBootstrap() {
   const [me, setMe] = useState(null);
@@ -25,7 +41,7 @@ export function useRaidBootstrap() {
   const [loadingRaids, setLoadingRaids] = useState(false);
   const [error, setError] = useState(null);
 
-  // ---- Role helpers (frontend-only convenience) -------------------------
+  // ---- Role helpers ------------------------------------------------------
   const roleLevel = me?.roleLevel ?? 0;
   const isOwner = !!me?.isOwner || roleLevel >= 3;
   const isAdmin = !!me?.isAdmin || roleLevel >= 2;
@@ -34,13 +50,12 @@ export function useRaidBootstrap() {
   const isLeadOrHigher = useMemo(() => roleLevel >= 1, [roleLevel]);
   const isAdminLevel = useMemo(() => roleLevel >= 2, [roleLevel]);
 
-  // ---- load parts --------------------------------------------------------
+  // ---- Loader ------------------------------------------------------------
   const loadMe = useCallback(async () => {
     try {
-      const res = await apiGetMe();
-      setMe(res.user);
+      const res = await apiGetMe(); // -> { user }
+      setMe(res.user ?? null);
     } catch (e) {
-      // Wenn 401 → Benutzer nicht eingeloggt
       setMe(null);
       if (e?.status && e.status !== 401) setError(e);
     }
@@ -48,10 +63,10 @@ export function useRaidBootstrap() {
 
   const loadLeads = useCallback(async () => {
     try {
-      const res = await apiGetLeads();
+      const res = await apiGetLeads(); // -> { leads: [] }
       setLeads(res.leads || []);
     } catch (e) {
-      // Leads sind "nice to have" – Fehler nicht fatal
+      // nicht fatal
       if (e?.status && e.status !== 401) console.warn("[useRaidBootstrap] leads error:", e);
     }
   }, []);
@@ -59,8 +74,11 @@ export function useRaidBootstrap() {
   const loadRaids = useCallback(async () => {
     setLoadingRaids(true);
     try {
-      const res = await apiListRaids();
-      setRaids(res.raids || []);
+      // WICHTIG: apiListRaids() liefert direkt ein Array!
+      const list = await apiListRaids();
+      setRaids(Array.isArray(list) ? list.slice().sort(sortRaids) : []);
+      // Debug-Helfer (kannst du rausnehmen):
+      // console.debug("[useRaidBootstrap] loaded raids:", list.length, list);
     } catch (e) {
       setError(e);
     } finally {
@@ -79,34 +97,26 @@ export function useRaidBootstrap() {
     refreshAll();
   }, [refreshAll]);
 
-  // ---- mutations ---------------------------------------------------------
-  const createRaid = useCallback(
-    async (payload) => {
-      const res = await apiCreateRaid(payload);
-      // Vorne einsortieren
-      setRaids((prev) => [res.raid, ...prev]);
-      return res.raid;
-    },
-    []
-  );
+  // ---- Mutations ---------------------------------------------------------
+  const createRaid = useCallback(async (payload) => {
+    const raid = await apiCreateRaid(payload); // -> Raid-Objekt
+    setRaids((prev) => [raid, ...prev].sort(sortRaids));
+    return raid;
+  }, []);
 
-  const updateRaid = useCallback(
-    async (id, patch) => {
-      const res = await apiUpdateRaid(id, patch);
-      setRaids((prev) => prev.map((r) => (String(r.id) === String(id) ? res.raid : r)));
-      return res.raid;
-    },
-    []
-  );
+  const updateRaid = useCallback(async (id, patch) => {
+    const raid = await apiUpdateRaid(id, patch); // -> Raid-Objekt
+    setRaids((prev) =>
+      prev.map((r) => (String(r.id) === String(id) ? raid : r)).sort(sortRaids)
+    );
+    return raid;
+  }, []);
 
-  const deleteRaid = useCallback(
-    async (id) => {
-      await apiDeleteRaid(id);
-      setRaids((prev) => prev.filter((r) => String(r.id) !== String(id)));
-      return true;
-    },
-    []
-  );
+  const deleteRaid = useCallback(async (id) => {
+    await apiDeleteRaid(id); // -> true | { ok:true }
+    setRaids((prev) => prev.filter((r) => String(r.id) !== String(id)));
+    return true;
+  }, []);
 
   return {
     // data

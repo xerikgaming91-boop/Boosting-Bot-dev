@@ -1,33 +1,38 @@
 // src/backend/routes/authRoutes.js
-/**
- * Auth-Routen
- * - Dünner Router, delegiert an Controller (der Service-Schicht nutzt)
- * - attachUser sorgt dafür, dass /session den User aus der Session liefert
- */
+// CommonJS, wird automatisch unter /api/auth gemountet
 
 const express = require("express");
-const ctrl = require("../controllers/authController.js");
-const { attachUser } = require("../middlewares/auth.js");
-
 const router = express.Router();
 
-// Session-User an req.user hängen (nur Lesezwecke hier)
+const { attachUser } = require("../middlewares/auth.js");
+const ctrlRaw = require("../controllers/authController.js");
+
+// Fallback falls versehentlich als default exportiert
+const ctrl = ctrlRaw && ctrlRaw.default ? ctrlRaw.default : ctrlRaw;
+
+// No-Cache Middleware gegen 304 auf /login & /session
+function noCache(_req, res, next) {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  res.set("Surrogate-Control", "no-store");
+  next();
+}
+
+// Session-User an req hängen
 router.use(attachUser);
 
-// OAuth2: Login → Redirect zu Discord
-router.get("/auth/discord/login", ctrl.discordLogin);
+// OAuth Start (zwei Aliase – dein Frontend nutzt /login)
+router.get("/login", noCache, ctrl.start);
+router.get("/discord", noCache, ctrl.start);
 
-// OAuth2: Callback von Discord
-router.get("/auth/discord/callback", ctrl.discordCallback);
+// OAuth Callback
+router.get("/callback", ctrl.callback);
 
-// Aktuelle Session lesen
-router.get("/auth/session", ctrl.getSession);
+// Session-Info
+router.get("/session", noCache, ctrl.session);
 
-// Logout (Session zerstören)
-router.post("/auth/logout", ctrl.logout);
+// Logout
+router.post("/logout", ctrl.logout);
 
-// Export nach server.js Autoload
-module.exports = {
-  basePath: "/auth",
-  router,
-};
+module.exports = { basePath: "/auth", router };

@@ -10,6 +10,7 @@ export default function RaidsList() {
     leads,
     raids,
     loading,
+    loadingRaids,   // <- neu: boolean aus Hook
     error,
     createRaid,
     deleteRaid,
@@ -58,11 +59,11 @@ export default function RaidsList() {
             </div>
 
             <div className="px-2 py-3 sm:px-4">
-              {loading === "list" ? (
+              {loadingRaids ? (
                 <div className="px-3 py-10 text-center text-zinc-400">
                   Lädt …
                 </div>
-              ) : error?.list ? (
+              ) : error ? (
                 <div className="px-3 py-6 text-sm text-red-400">
                   Fehler beim Laden der Raids.
                 </div>
@@ -71,6 +72,7 @@ export default function RaidsList() {
                   rows={raids}
                   onDelete={deleteRaid}
                   me={me}
+                  onlyFuture={false}   // <- zeigt ALLE; bei Bedarf auf true setzen
                 />
               ) : (
                 <div className="px-3 py-10 text-center text-zinc-400">

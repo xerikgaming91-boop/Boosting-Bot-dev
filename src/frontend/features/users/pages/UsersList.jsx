@@ -5,7 +5,7 @@ import { useAuth } from "../../../app/providers/AuthProvider.jsx";
 import {
   apiListUsers,
   apiUpdateUserRoles,
-} from "../../../app/api/usersService.js"; // <— ggf. anpassen, falls dein Pfad anders ist
+} from "../../../app/api/usersAPI.js"; // <— ggf. anpassen, falls dein Pfad anders ist
 
 function Badge({ children }) {
   return (

@@ -1,143 +1,77 @@
 // src/backend/models/userModel.js
-/**
- * Users Model/Repository (Prisma)
- * - Kapselt alle DB-Zugriffe rund um User
- * - Keine Business-Logik/RBAC
- *
- * API (vom Users-Controller genutzt):
- *   - findMany({ where, orderBy })
- *   - findOne(discordId)
- *   - upsert(data)
- *   - update(discordId, patch)
- */
-
 const { prisma } = require("../prismaClient.js");
 
-/* -------------------------------- Mapper -------------------------------- */
-
-function map(u) {
-  if (!u) return null;
+// Mapper -> nur Felder, die das Frontend erwartet
+function map(row) {
+  if (!row) return null;
   return {
-    id: u.id, // interner PK (kann nützlich sein)
-    discordId: u.discordId,
-    username: u.username ?? null,
-    displayName: u.displayName ?? null,
-    avatarUrl: u.avatarUrl ?? null,
+    id: row.id,
+    discordId: row.discordId,
+    username: row.username || null,
+    displayName: row.displayName || null,
+    avatarUrl: row.avatarUrl || null,
 
-    // Rollen / Flags
-    rolesCsv: u.rolesCsv ?? null,
-    isRaidlead: !!u.isRaidlead,
-    isAdmin: !!u.isAdmin,
-    isOwner: !!u.isOwner,
-    highestRole: u.highestRole ?? null,
-    roleLevel: Number.isFinite(u.roleLevel) ? u.roleLevel : 0,
+    rolesCsv: row.rolesCsv || null,
+    highestRole: row.highestRole || null,
+    roleLevel: row.roleLevel ?? 0,
+    isRaidlead: !!row.isRaidlead,
+    isAdmin: !!row.isAdmin,
+    isOwner: !!row.isOwner,
 
-    createdAt: u.createdAt,
-    updatedAt: u.updatedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
-/* -------------------------------- Queries -------------------------------- */
+// Upsert anhand discordId (unique)
+async function upsertFromDiscord(payload) {
+  const saved = await prisma.user.upsert({
+    where: { discordId: String(payload.discordId) },
+    create: {
+      discordId: String(payload.discordId),
+      username: payload.username || null,
+      displayName: payload.displayName || null,
+      avatarUrl: payload.avatarUrl || null,
 
-/**
- * Liste von Usern.
- * @param {{ where?:object, orderBy?:Array<object> }} opts
- */
-exports.findMany = async ({ where, orderBy } = {}) => {
+      rolesCsv: payload.rolesCsv || null,
+      highestRole: payload.highestRole || null,
+      roleLevel: payload.roleLevel ?? 0,
+      isRaidlead: !!payload.isRaidlead,
+      isAdmin: !!payload.isAdmin,
+      isOwner: !!payload.isOwner,
+    },
+    update: {
+      username: payload.username || null,
+      displayName: payload.displayName || null,
+      avatarUrl: payload.avatarUrl || null,
+
+      rolesCsv: payload.rolesCsv || null,
+      highestRole: payload.highestRole || null,
+      roleLevel: payload.roleLevel ?? 0,
+      isRaidlead: !!payload.isRaidlead,
+      isAdmin: !!payload.isAdmin,
+      isOwner: !!payload.isOwner,
+    },
+  });
+  return map(saved);
+}
+
+async function findByDiscordId(discordId) {
+  const row = await prisma.user.findUnique({ where: { discordId: String(discordId) } });
+  return map(row);
+}
+
+async function findLeads() {
   const rows = await prisma.user.findMany({
-    where: where || undefined,
-    orderBy: orderBy || [{ updatedAt: "desc" }],
+    where: { OR: [{ isRaidlead: true }, { roleLevel: { gte: 1 } }] },
+    orderBy: [{ roleLevel: "desc" }, { username: "asc" }],
+    take: 200,
   });
   return rows.map(map);
+}
+
+module.exports = {
+  upsertFromDiscord,
+  findByDiscordId,
+  findLeads,
 };
-
-/** Ein User per Discord-ID (Unique) */
-exports.findOne = async (discordId) => {
-  if (!discordId) return null;
-  const u = await prisma.user.findUnique({
-    where: { discordId: String(discordId) },
-  });
-  return map(u);
-};
-
-/* -------------------------------- Writes -------------------------------- */
-
-/**
- * Upsert per Discord-ID.
- * Erwartet:
- * {
- *   discordId, username?, displayName?, avatarUrl?,
- *   rolesCsv?, isRaidlead?, isAdmin?, isOwner?,
- *   highestRole?, roleLevel?
- * }
- * - `undefined` -> Feld unverändert lassen
- * - `null` -> DB NULL setzen (wo sinnvoll)
- */
-exports.upsert = async (data = {}) => {
-  const discordId = String(data.discordId || "");
-  if (!discordId) {
-    const err = new Error("discordId_required");
-    err.code = "VALIDATION";
-    throw err;
-  }
-
-  const update = {
-    username: data.username ?? undefined,
-    displayName: data.displayName ?? undefined,
-    avatarUrl: data.avatarUrl ?? undefined,
-    rolesCsv: data.rolesCsv ?? undefined,
-    isRaidlead: data.isRaidlead ?? undefined,
-    isAdmin: data.isAdmin ?? undefined,
-    isOwner: data.isOwner ?? undefined,
-    highestRole: data.highestRole ?? undefined,
-    roleLevel: data.roleLevel ?? undefined,
-  };
-
-  const createData = {
-    discordId,
-    username: data.username ?? null,
-    displayName: data.displayName ?? null,
-    avatarUrl: data.avatarUrl ?? null,
-    rolesCsv: data.rolesCsv ?? null,
-    isRaidlead: !!data.isRaidlead,
-    isAdmin: !!data.isAdmin,
-    isOwner: !!data.isOwner,
-    highestRole: data.highestRole ?? null,
-    roleLevel: Number.isFinite(data.roleLevel) ? data.roleLevel : 0,
-  };
-
-  const saved = await prisma.user.upsert({
-    where: { discordId },
-    update,
-    create: createData,
-  });
-  return map(saved);
-};
-
-/**
- * Partielles Update per Discord-ID.
- * @param {string} discordId
- * @param {object} patch
- */
-exports.update = async (discordId, patch = {}) => {
-  const data = {
-    username: patch.username !== undefined ? patch.username : undefined,
-    displayName: patch.displayName !== undefined ? patch.displayName : undefined,
-    avatarUrl: patch.avatarUrl !== undefined ? patch.avatarUrl : undefined,
-    rolesCsv: patch.rolesCsv !== undefined ? patch.rolesCsv : undefined,
-    isRaidlead: patch.isRaidlead !== undefined ? !!patch.isRaidlead : undefined,
-    isAdmin: patch.isAdmin !== undefined ? !!patch.isAdmin : undefined,
-    isOwner: patch.isOwner !== undefined ? !!patch.isOwner : undefined,
-    highestRole: patch.highestRole !== undefined ? patch.highestRole : undefined,
-    roleLevel: patch.roleLevel !== undefined ? Number(patch.roleLevel) : undefined,
-  };
-
-  const saved = await prisma.user.update({
-    where: { discordId: String(discordId) },
-    data,
-  });
-  return map(saved);
-};
-
-// optional für Tests/Diagnose
-exports._map = map;
