@@ -6,6 +6,12 @@
   "engines": {
     "node": ">=22.12.0"
   },
+
+  "prisma":{
+    "schema": "src/backend/Prisma/schema.prisma",
+    "seed": "node src/backend/Prisma/seed.cjs"
+
+  },
   "scripts": {
     "dev": "node src/backend/server.js",
     "build": "vite build --config vite.config.js",

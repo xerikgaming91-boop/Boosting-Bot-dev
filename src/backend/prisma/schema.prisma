@@ -1,12 +1,14 @@
+// src/backend/Prisma/schema.prisma
 generator client {
   provider      = "prisma-client-js"
-  engineType    = "binary"        // ← statt "library"
-  binaryTargets = ["windows"]      // ← Engine-Binary für Windows laden
+  engineType    = "binary"
+  binaryTargets = ["windows"]
 }
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  // HINWEIS: relativ zum Ordner 'src/backend/Prisma'
+  url      = env("DATABASE_URL") // -> "file:./dev.db"
 }
 
 model User {
@@ -87,7 +89,7 @@ model BoosterChar {
   user    User       @relation(fields: [userId], references: [discordId], onDelete: Cascade)
   signups Signup[]
 
-  // ✨ Eindeutigkeit: Ein User kann denselben Char (Name+Realm) nur einmal anlegen
+  // Ein User kann denselben Char (Name+Realm) nur einmal anlegen
   @@unique([userId, name, realm])
 
   @@index([userId])
@@ -99,13 +101,13 @@ model Signup {
   id          Int      @id @default(autoincrement())
   raidId      Int
   userId      String?
-  type        String   @default("DPS")       // statt Enum: String
+  type        String   @default("DPS")
   charId      Int?
   displayName String?
   saved       Boolean  @default(false)
   note        String?
   class       String?
-  status      String   @default("SIGNUPED")  // statt Enum: String
+  status      String   @default("SIGNUPED")
 
   createdAt   DateTime @default(now())
 
@@ -117,6 +119,6 @@ model Signup {
   @@index([userId])
   @@index([charId])
 
-  // ✨ Ein Char darf sich in EINEM Raid nur EINMAL befinden
+  // Ein Char darf sich in EINEM Raid nur EINMAL befinden
   @@unique([raidId, charId])
 }

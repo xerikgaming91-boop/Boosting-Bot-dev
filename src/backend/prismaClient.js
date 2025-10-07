@@ -1,13 +1,15 @@
 // src/backend/prismaClient.js
+// Zentrale Prisma-Instanz (CommonJS). Fällt auf src/backend/Prisma/dev.db zurück, wenn .env fehlt.
+
 const path = require("path");
 const { PrismaClient } = require("@prisma/client");
 
-// Falls DATABASE_URL fehlt, absolut auf prisma/dev.db setzen (Windows-fest)
 function ensureDatabaseUrl() {
   if (process.env.DATABASE_URL) return;
-  const abs = path.resolve(__dirname, "..", "..", "prisma", "dev.db");
+  const abs = path.resolve(__dirname, "Prisma", "dev.db"); // Großes 'P'!
   process.env.DATABASE_URL = "file:" + abs.replace(/\\/g, "/");
 }
+
 ensureDatabaseUrl();
 
 const prisma = new PrismaClient({

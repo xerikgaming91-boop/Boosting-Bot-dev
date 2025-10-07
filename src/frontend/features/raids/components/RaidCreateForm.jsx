@@ -1,254 +1,149 @@
 // src/frontend/features/raids/components/RaidCreateForm.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useState } from "react";
 
-// UI Klassen
-const card =
-  "rounded-2xl border border-zinc-800 bg-zinc-900/60 shadow-[0_10px_30px_-15px_rgba(0,0,0,0.6)]";
-const sectionTitle =
-  "text-sm font-semibold uppercase tracking-wide text-zinc-300/90";
-const inputBase =
-  "w-full rounded-xl border border-zinc-700/60 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500";
-const selectBase = inputBase;
-const helpText = "text-[11px] text-zinc-400 mt-1";
-const label = "text-xs font-medium text-zinc-300 mb-1 block";
-const btnPrimary =
-  "inline-flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white px-3.5 py-2 text-sm font-semibold shadow-sm transition-colors";
-
-// Vorgaben
-const DIFFICULTIES = ["NHC", "HC", "Mythic"];
-const LOOT_OPTIONS = [
-  { value: "saved", label: "Saved" },
-  { value: "unsaved", label: "Unsaved" },
-  { value: "vip", label: "VIP" },
-];
-
-export default function RaidCreateForm({
-  presets = [],
-  leads = [],
-  onCreate,
-  defaultLeadId = null,
-}) {
-  const [form, setForm] = useState({
-    presetId: "",
-    date: "",
-    time: "",
-    difficulty: "HC",
-    lootType: "vip",
-    leadId: defaultLeadId || "",
-    mythicBosses: 1,
-  });
-
-  // aktives Preset + Dungeon-Basis (erstes Wort) oder Default
-  const activePreset = useMemo(
-    () => presets.find((p) => String(p.id) === String(form.presetId)) || null,
-    [presets, form.presetId]
-  );
-  const base = useMemo(() => {
-    if (activePreset?.name) {
-      const tok = activePreset.name.trim().split(/\s+/)[0];
-      if (tok) return tok;
-    }
-    return "Manaforge";
-  }, [activePreset]);
-
-  // Live-Titel-Vorschau (Backend generiert final!)
-  const previewTitle = useMemo(() => {
-    const diff = form.difficulty;
-    const loot = (LOOT_OPTIONS.find((o) => o.value === form.lootType)?.label) ?? form.lootType;
-    if (diff === "Mythic") {
-      return `${base} Mythic ${loot} ${form.mythicBosses}/8`;
-    }
-    return `${base} ${diff} ${loot}`;
-  }, [base, form.difficulty, form.lootType, form.mythicBosses]);
-
-  function patch(name, value) {
-    setForm((f) => ({ ...f, [name]: value }));
-  }
+/**
+ * Props:
+ * - me:           Session-User { discordId, id, ... }
+ * - leads:        Array<User> (für Auswahl)
+ * - canPickLead:  boolean (nur Owner/Admin)
+ * - onCreate:     (payload) => Promise<Raid>
+ * - loading:      boolean
+ */
+export default function RaidCreateForm({ me, leads = [], canPickLead = false, onCreate, loading = false }) {
+  const [title, setTitle] = useState("");
+  const [difficulty, setDifficulty] = useState("HC");
+  const [lootType, setLootType] = useState("vip");
+  const [date, setDate] = useState(""); // datetime-local
+  const [bosses, setBosses] = useState(0);
+  const [lead, setLead] = useState("");
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!onCreate) return;
 
-    if (!form.date || !form.time) {
-      alert("Bitte Datum und Uhrzeit angeben.");
-      return;
-    }
-    if (!form.leadId) {
-      alert("Bitte einen Raidlead auswählen.");
-      return;
-    }
-
-    // ISO-Zeit bauen (Browser-Lokalzeit → ISO; finale TZ-Logik kann Server übernehmen)
-    const [hh, mm] = (form.time || "").split(":").map((v) => parseInt(v, 10));
-    const when = new Date(
-      `${form.date}T${String(hh).padStart(2, "0")}:${String(mm).padStart(
-        2,
-        "0"
-      )}:00`
-    );
-
+    const when = date ? new Date(date) : new Date();
     const payload = {
-      base, // Dungeon-Basis
-      presetId: form.presetId ? Number(form.presetId) : null,
-      difficulty: form.difficulty, // "NHC"|"HC"|"Mythic"
-      lootType: form.lootType, // "saved"|"unsaved"|"vip"
-      bosses: form.difficulty === "Mythic" ? Number(form.mythicBosses) : 8,
+      title: title.trim(),
+      difficulty: difficulty || "HC",
+      lootType: lootType || "vip",
       date: when.toISOString(),
-      lead: form.leadId, // z. B. Discord-ID
+      bosses: Number(bosses) || 0,
+      // Lead:
+      lead: canPickLead
+        ? (lead || "").trim()
+        : (me?.discordId || String(me?.id || "") || "").trim(),
     };
 
-    await onCreate(payload);
+    // falls kein Title
+    if (!payload.title) return;
+
+    const created = await onCreate?.(payload);
+    // reset optional
+    if (created) {
+      setTitle("");
+      setBosses(0);
+      if (canPickLead) setLead("");
+    }
   }
 
-  // Wenn Difficulty von Mythic weggeht, sicherheitshalber Bosse wieder auf 8
-  useEffect(() => {
-    if (form.difficulty !== "Mythic" && form.mythicBosses !== 8) {
-      setForm((f) => ({ ...f, mythicBosses: 8 }));
-    }
-    if (form.difficulty === "Mythic" && (form.mythicBosses < 1 || form.mythicBosses > 8)) {
-      setForm((f) => ({ ...f, mythicBosses: 1 }));
-    }
-  }, [form.difficulty]);
-
   return (
-    <form onSubmit={handleSubmit} className={`${card} p-5 md:p-6`}>
-      <div className="mb-4 pb-4 border-b border-zinc-800/80">
-        <h2 className={sectionTitle}>Raid erstellen</h2>
+    <form className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" onSubmit={handleSubmit}>
+      <div>
+        <label className="mb-1 block text-xs text-zinc-400">Titel</label>
+        <input
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Manaforge Heroic VIP"
+          required
+        />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        {/* Titel (read-only Preview) */}
-        <div className="col-span-1">
-          <label className={label}>Titel (automatisch)</label>
-          <input className={inputBase} value={previewTitle} readOnly />
-          <p className={helpText}>
-            Finaler Titel wird serverseitig generiert (z. B.{" "}
-            <code>Manaforge HC VIP</code> oder{" "}
-            <code>Manaforge Mythic VIP 2/8</code>).
-          </p>
-        </div>
+      <div>
+        <label className="mb-1 block text-xs text-zinc-400">Datum & Zeit</label>
+        <input
+          type="datetime-local"
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          required
+        />
+      </div>
 
-        {/* Datum/Zeit */}
-        <div className="col-span-1 grid grid-cols-2 gap-4">
-          <div>
-            <label className={label}>Datum</label>
-            <input
-              type="date"
-              className={inputBase}
-              value={form.date}
-              onChange={(e) => patch("date", e.target.value)}
-            />
-          </div>
-          <div>
-            <label className={label}>Uhrzeit</label>
-            <input
-              type="time"
-              className={inputBase}
-              value={form.time}
-              onChange={(e) => patch("time", e.target.value)}
-            />
-          </div>
-        </div>
+      <div>
+        <label className="mb-1 block text-xs text-zinc-400">Difficulty</label>
+        <select
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
+          value={difficulty}
+          onChange={(e) => setDifficulty(e.target.value)}
+        >
+          <option value="HC">Heroic</option>
+          <option value="Mythic">Mythic</option>
+          <option value="Normal">Normal</option>
+        </select>
+      </div>
 
-        {/* Loot */}
+      <div>
+        <label className="mb-1 block text-xs text-zinc-400">Loot</label>
+        <select
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
+          value={lootType}
+          onChange={(e) => setLootType(e.target.value)}
+        >
+          <option value="vip">VIP</option>
+          <option value="community">Community</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs text-zinc-400">Bosses</label>
+        <input
+          type="number"
+          min={0}
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
+          value={bosses}
+          onChange={(e) => setBosses(e.target.value)}
+        />
+      </div>
+
+      {canPickLead ? (
         <div>
-          <label className={label}>Loot</label>
+          <label className="mb-1 block text-xs text-zinc-400">Raidlead</label>
           <select
-            className={selectBase}
-            value={form.lootType}
-            onChange={(e) => patch("lootType", e.target.value)}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
+            value={lead}
+            onChange={(e) => setLead(e.target.value)}
           >
-            {LOOT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Difficulty + Bosse */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={label}>Difficulty</label>
-            <select
-              className={selectBase}
-              value={form.difficulty}
-              onChange={(e) => patch("difficulty", e.target.value)}
-            >
-              {DIFFICULTIES.map((d) => (
-                <option key={d} value={d}>
-                  {d}
+            <option value="">– auswählen –</option>
+            {leads.map((u) => {
+              const value = u.discordId || String(u.id);
+              const name = u.displayName || u.username || u.globalName || value;
+              return (
+                <option key={value} value={value}>
+                  {name}
                 </option>
-              ))}
-            </select>
-          </div>
-
-          {form.difficulty === "Mythic" ? (
-            <div>
-              <label className={label}>Bosse (Mythic)</label>
-              <select
-                className={selectBase}
-                value={String(form.mythicBosses)}
-                onChange={(e) => patch("mythicBosses", Number(e.target.value))}
-              >
-                {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>
-                    {n}/8
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div>
-              <label className={label}>Bosse</label>
-              <input className={inputBase} value="8" disabled />
-            </div>
-          )}
-        </div>
-
-        {/* Lead */}
-        <div>
-          <label className={label}>Raid Lead</label>
-          <select
-            className={selectBase}
-            value={form.leadId}
-            onChange={(e) => patch("leadId", e.target.value)}
-          >
-            <option value="">— auswählen —</option>
-            {leads.map((l) => (
-              <option key={l.id || l.discordId} value={l.id || l.discordId}>
-                {l.displayName || l.username || l.discordId}
-              </option>
-            ))}
+              );
+            })}
           </select>
-          <p className={helpText}>Nur Lead/Admin/Owner erscheinen hier.</p>
         </div>
-
-        {/* Preset */}
-        <div>
-          <label className={label}>Preset</label>
-          <select
-            className={selectBase}
-            value={form.presetId}
-            onChange={(e) => patch("presetId", e.target.value)}
-          >
-            <option value="">— Kein Preset —</option>
-            {presets.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <p className={helpText}>
-            Dungeon-Name wird aus dem Preset (erstes Wort) übernommen. Ohne
-            Preset: <span className="font-medium">Manaforge</span>.
-          </p>
+      ) : (
+        <div className="opacity-60">
+          <label className="mb-1 block text-xs text-zinc-400">Raidlead</label>
+          <input
+            disabled
+            className="w-full cursor-not-allowed rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-400"
+            value={me?.displayName || me?.username || me?.discordId || me?.id || ""}
+            readOnly
+          />
         </div>
-      </div>
+      )}
 
-      <div className="mt-5">
-        <button type="submit" className={btnPrimary}>
-          Raid erstellen
+      <div className="sm:col-span-2 lg:col-span-3">
+        <button
+          type="submit"
+          disabled={loading}
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+        >
+          {loading ? "Erstelle …" : "Raid erstellen"}
         </button>
       </div>
     </form>

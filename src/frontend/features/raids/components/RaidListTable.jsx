@@ -2,13 +2,42 @@
 import React, { useMemo } from "react";
 
 /**
- * Props:
- * - rows: Raid[]
- * - me:   Session-User (optional)
- * - onDelete(id): Promise<void> | void
- * - onlyFuture?: boolean (default false)  -> wenn true, filtert Raids mit date < now (lokale Zeit)
+ * Mappt r.lead (ID/String) ➜ DisplayName/Username
  */
-export default function RaidListTable({ rows = [], me = null, onDelete, onlyFuture = false }) {
+function formatLead(leadValue, leads = []) {
+  if (leadValue === null || leadValue === undefined || leadValue === "") return "-";
+  const s = String(leadValue);
+
+  // Finde passenden Lead in der übergebenen Leads-Liste
+  const found =
+    leads.find((u) => String(u.id) === s) ||
+    leads.find((u) => String(u.discordId) === s);
+
+  // Nimm bevorzugt den Discord DisplayName, dann username, sonst die rohe Angabe
+  return (
+    found?.displayName ||
+    found?.username ||
+    found?.globalName ||
+    found?.name ||
+    s
+  );
+}
+
+/**
+ * Props:
+ * - rows:  Raid[]
+ * - leads: User[]   (für Anzeige des Lead-Namens)
+ * - me:    Session-User (optional)
+ * - onDelete(id): Promise<void> | void
+ * - onlyFuture?: boolean (default false)  -> wenn true, filtert date < now (lokale Zeit)
+ */
+export default function RaidListTable({
+  rows = [],
+  leads = [],
+  me = null,
+  onDelete,
+  onlyFuture = false,
+}) {
   const now = Date.now();
 
   const items = useMemo(() => {
@@ -51,7 +80,13 @@ export default function RaidListTable({ rows = [], me = null, onDelete, onlyFutu
               month: "2-digit",
               day: "2-digit",
             });
-            const timeStr = dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            const timeStr = dt.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+
+            const leadText = formatLead(r.lead, leads);
+
             return (
               <tr key={r.id}>
                 <td className="px-4 py-3 font-medium">{r.title}</td>
@@ -60,7 +95,7 @@ export default function RaidListTable({ rows = [], me = null, onDelete, onlyFutu
                 <td className="px-4 py-3">{r.difficulty || "-"}</td>
                 <td className="px-4 py-3">{r.lootType || "-"}</td>
                 <td className="px-4 py-3">{r.bosses ?? "-"}</td>
-                <td className="px-4 py-3">{r.lead ?? "-"}</td>
+                <td className="px-4 py-3">{leadText}</td>
                 <td className="px-4 py-3 text-right">
                   {typeof onDelete === "function" && (
                     <button
