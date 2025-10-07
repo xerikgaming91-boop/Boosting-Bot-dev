@@ -1,5 +1,5 @@
 // src/backend/services/authService.js
-// Discord OAuth + Rollen/Owner-Erkennung, CommonJS
+// Discord OAuth + Live-Rollen-Refresh + Owner-Erkennung
 
 const fetch = global.fetch || require("node-fetch");
 const users = require("../models/userModel.js");
@@ -16,16 +16,16 @@ const REDIRECT_URI = process.env.OAUTH_REDIRECT_URI || `${BACKEND_URL}/api/auth/
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
 
-// Rollen (IDs aus .env)
+// Rollen (IDs)
 const ROLE_ADMIN = process.env.DISCORD_ROLE_ADMIN_ID;
 const ROLE_LEAD = process.env.RAIDLEAD_ROLE_ID;
 const ROLE_BOOSTER = process.env.DISCORD_ROLE_BOOSTER_ID;
 const ROLE_LOOTBUDDYS = process.env.DISCORD_ROLE_LOOTBUDDYS_ID;
 
-// optionaler Fallback falls Guild-Owner-API nicht geht
-const GUILD_OWNER_ID_ENV = process.env.DISCORD_GUILD_OWNER_ID;
+const GUILD_OWNER_ID_ENV = process.env.DISCORD_GUILD_OWNER_ID || null;
+const REFRESH_ON_ME = String(process.env.AUTH_REFRESH_ON_ME || "0").match(/^(1|true|yes)$/i) != null;
 
-// ---------- OAuth helpers ----------
+// ---------- OAuth ----------
 function getAuthorizeUrl(state = "") {
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
@@ -78,7 +78,6 @@ async function fetchGuildMember(discordUserId) {
 }
 
 async function fetchGuildOwnerId() {
-  // Holt owner_id der Guild. Fallback: ENV.
   if (!BOT_TOKEN || !GUILD_ID) return GUILD_OWNER_ID_ENV || null;
   try {
     const res = await fetch(`${DISCORD_API}/guilds/${GUILD_ID}`, {
@@ -92,7 +91,7 @@ async function fetchGuildOwnerId() {
   }
 }
 
-// ---------- Role logic ----------
+// ---------- Rollen-Logik ----------
 function computeRoleFlags(member) {
   const roles = Array.isArray(member?.roles) ? member.roles : [];
   const has = (id) => !!id && roles.includes(id);
@@ -108,7 +107,6 @@ function computeRoleFlags(member) {
   else if (isLootbuddy) highestRole = "lootbuddy";
   else if (isBooster) highestRole = "booster";
 
-  // Basis-Level (Owner wird später auf 3 gesetzt)
   const roleLevel = isAdmin ? 2 : isRaidlead ? 1 : 0;
 
   return {
@@ -122,27 +120,23 @@ function computeRoleFlags(member) {
   };
 }
 
+// ---------- Login (setzt Session-User) ----------
 async function loginWithCode(code) {
-  // 1) Token
   const token = await exchangeCodeForToken(code);
-  // 2) Me
   const me = await fetchDiscordUser(token.access_token);
-  // 3) Guild-Mitglied & Rollen
+
   const member = await fetchGuildMember(me.id);
   const baseFlags = computeRoleFlags(member);
-  // 4) Owner ermitteln
+
   const ownerId = await fetchGuildOwnerId();
   const isOwner = !!ownerId && String(me.id) === String(ownerId);
 
-  // 5) finale Flags zusammenführen
   const flags = {
     ...baseFlags,
     isOwner,
-    // Owner hat immer höchste Stufe
     roleLevel: isOwner ? 3 : baseFlags.roleLevel,
   };
 
-  // 6) DB upserten
   const saved = await users.upsertFromDiscord({
     discordId: me.id,
     username: me.username || null,
@@ -156,7 +150,6 @@ async function loginWithCode(code) {
     isRaidlead: flags.isRaidlead,
   });
 
-  // 7) Session-User (inkl. Lootbuddy/Booster) zurückgeben
   return {
     id: saved.id,
     discordId: saved.discordId,
@@ -175,4 +168,76 @@ async function loginWithCode(code) {
   };
 }
 
-module.exports = { getAuthorizeUrl, loginWithCode, FRONTEND_URL };
+// ---------- Live-Refresh der Rollen ----------
+async function refreshSessionUser(discordId, currentSessionUser = null) {
+  if (!discordId) return currentSessionUser || null;
+
+  const member = await fetchGuildMember(discordId);
+  const baseFlags = computeRoleFlags(member);
+  const ownerId = await fetchGuildOwnerId();
+  const isOwner = !!ownerId && String(discordId) === String(ownerId);
+  const flags = {
+    ...baseFlags,
+    isOwner,
+    roleLevel: isOwner ? 3 : baseFlags.roleLevel,
+  };
+
+  // DB aktualisieren (nur Flags / Meta – Namen aus DB oder Session übernehmen)
+  const dbUser = await users.findByDiscordId(discordId);
+  await users.upsertFromDiscord({
+    discordId: String(discordId),
+    username: dbUser?.username || currentSessionUser?.username || null,
+    displayName: dbUser?.displayName || currentSessionUser?.displayName || null,
+    avatarUrl: dbUser?.avatarUrl || currentSessionUser?.avatarUrl || null,
+    rolesCsv: flags.rolesCsv,
+    highestRole: flags.highestRole,
+    roleLevel: flags.roleLevel,
+    isOwner: flags.isOwner,
+    isAdmin: flags.isAdmin,
+    isRaidlead: flags.isRaidlead,
+  });
+
+  return {
+    id: dbUser?.id || currentSessionUser?.id || null,
+    discordId: String(discordId),
+    username: dbUser?.username || currentSessionUser?.username || null,
+    displayName: dbUser?.displayName || currentSessionUser?.displayName || null,
+    avatarUrl: dbUser?.avatarUrl || currentSessionUser?.avatarUrl || null,
+
+    roleLevel: flags.roleLevel,
+    isOwner: flags.isOwner,
+    isAdmin: flags.isAdmin,
+    isRaidlead: flags.isRaidlead,
+    isLootbuddy: flags.isLootbuddy,
+    isBooster: flags.isBooster,
+
+    highestRole: flags.highestRole,
+  };
+}
+
+/**
+ * Stellt sicher, dass req.session.user frische Rollen hat
+ * (nur wenn AUTH_REFRESH_ON_ME aktiviert ist).
+ */
+async function ensureFreshSession(req) {
+  if (!REFRESH_ON_ME) return;
+  const cur = req.session?.user;
+  if (!cur?.discordId) return;
+
+  try {
+    const fresh = await refreshSessionUser(cur.discordId, cur);
+    if (fresh) req.session.user = fresh;
+  } catch (e) {
+    // still ok – wir schlucken Netzwerk-Fehler, um /me nicht zu brechen
+    if (process.env.DEBUG_AUTH) {
+      console.warn("[auth] refresh roles failed:", e?.message || e);
+    }
+  }
+}
+
+module.exports = {
+  getAuthorizeUrl,
+  loginWithCode,
+  ensureFreshSession,
+  FRONTEND_URL,
+};

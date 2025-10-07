@@ -1,12 +1,14 @@
 // src/backend/controllers/authController.js
-// CommonJS Controller für Discord OAuth
-
 const svc = require("../services/authService.js");
+
+function sessionCookieName(req) {
+  // express-session default
+  return process.env.SESSION_NAME || (req?.session?.cookie?.name || "connect.sid");
+}
 
 async function start(req, res) {
   try {
     const url = svc.getAuthorizeUrl(req.query.state || "");
-    // IMMER Redirect (302), damit der Browser nicht versucht zu cachen
     return res.redirect(302, url);
   } catch (e) {
     console.error("[auth/start] error:", e);
@@ -22,12 +24,10 @@ async function callback(req, res) {
     const user = await svc.loginWithCode(code);
     req.session.user = user;
 
-    // JSON gewünscht?
     const wantsJson =
       (req.headers.accept || "").includes("application/json") || req.query.raw === "1";
     if (wantsJson) return res.json({ ok: true, user });
 
-    // Redirect zurück ins Frontend
     return res.redirect(302, svc.FRONTEND_URL);
   } catch (e) {
     console.error("[auth/callback] error:", e);
@@ -35,13 +35,19 @@ async function callback(req, res) {
   }
 }
 
-function session(req, res) {
-  // No-Cache erfolgt schon im Router
+async function session(req, res) {
+  await svc.ensureFreshSession(req);
   return res.json({ ok: true, user: req.session?.user || null });
 }
 
 function logout(req, res) {
-  req.session.destroy(() => res.json({ ok: true }));
+  const name = sessionCookieName(req);
+  req.session.destroy(() => {
+    try {
+      res.clearCookie(name);
+    } catch (_) {}
+    res.json({ ok: true });
+  });
 }
 
 module.exports = { start, callback, session, logout };
