@@ -8,7 +8,7 @@
 const raids = require("../models/raidModel");
 
 // ✨ Cycle-Window (Mi 08:00 → Mi 07:00)
-const { getCurrentCycleWindow, getNextCycleWindow } = require("../utils/cycleWindow");
+const { getCurrentCycleWindow, getNextCycleWindow } = require("../utils/cyclesWindow");
 
 // Discord-Bot (failsafe, wenn nicht verfügbar)
 let discordBot = null;

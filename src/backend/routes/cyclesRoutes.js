@@ -1,7 +1,7 @@
 // src/backend/routes/cyclesRoutes.js
 /**
  * Cycles-Routen (read-only)
- * - Wir berechnen Zyklen zentral in utils/cycles.js
+ * - Wir berechnen Zyklen zentral in utils/cyclesWindow.js
  * - Keine DB, kein Model – nur Utility-Aufruf.
  *
  * Endpunkte:
@@ -14,9 +14,9 @@ const { attachUser } = require("../middlewares/auth.js");
 let cyclesUtil;
 try {
   // Erwartet Funktionen wie: getCurrentCycle(), inCycle(date), etc.
-  cyclesUtil = require("../utils/cycles.js");
+  cyclesUtil = require("../utils/cyclesWindow.js");
 } catch (e) {
-  console.warn("[cyclesRoutes] utils/cycles.js konnte nicht geladen werden:", e?.message);
+  console.warn("[cyclesRoutes] utils/cyclesWindow.js konnte nicht geladen werden:", e?.message);
   cyclesUtil = {};
 }
 

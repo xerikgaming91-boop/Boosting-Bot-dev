@@ -11,6 +11,8 @@ import RaidDetail from "./features/raids/pages/RaidDetail.jsx";
 import PresetsList from "./features/presets/pages/PresetsList.jsx";
 import CharsList from "./features/chars/pages/CharsList.jsx";
 import UsersList from "./features/users/pages/UsersList.jsx";
+import MyRaids from "/features/my-raids/pages/MyRaids.jsx"
+
 
 export default function App() {
   return (
@@ -37,6 +39,7 @@ export default function App() {
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/raids" replace />} />
+         <Route path="/MyRaids" element={<MyRaids />} />
       </Route>
     </Routes>
   );

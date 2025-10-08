@@ -1,106 +1,111 @@
 // src/backend/services/myRaidsService.js
-/**
- * Service-Layer für "My Raids"
- * - Liefert für einen User (Discord-ID) seine kommenden / vergangenen Raids,
- *   getrennt nach: rostered (PICKED) und signups (SIGNUPED).
- * - Nutzt Prisma direkt für performante Includes/Sortierung.
- */
-
 const { prisma } = require("../prismaClient.js");
-
-/** Minimal-Mapper für Raid-Objekt (einheitlicher Shape im Frontend) */
-function mapRaid(r) {
-  if (!r) return null;
-  return {
-    id: r.id,
-    title: r.title,
-    difficulty: r.difficulty,
-    lootType: r.lootType,
-    date: r.date,
-    lead: r.lead,
-    bosses: r.bosses,
-    channelId: r.channelId ?? null,
-    messageId: r.messageId ?? null,
-    presetId: r.presetId ?? null,
-    detailUrl: `/raids/${r.id}`,
-  };
-}
-
-/** Mapper für Signup + Char + Raid */
-function mapEntry(row) {
-  return {
-    raid: mapRaid(row.raid),
-    signup: {
-      id: row.id,
-      raidId: row.raidId,
-      userId: row.userId ?? row.user?.discordId ?? null,
-      status: row.status, // SIGNUPED | PICKED
-      type: row.type,     // TANK | HEAL | DPS | LOOTBUDDY
-      saved: !!row.saved,
-      note: row.note ?? null,
-      displayName: row.displayName ?? row.user?.displayName ?? row.user?.username ?? null,
-      class: row.class ?? row.char?.class ?? null,
-      createdAt: row.createdAt,
-    },
-    char: row.char
-      ? {
-          id: row.char.id,
-          name: row.char.name,
-          realm: row.char.realm,
-          class: row.char.class ?? null,
-          spec: row.char.spec ?? null,
-          itemLevel: row.char.itemLevel ?? null,
-          rioScore: row.char.rioScore ?? null,
-          wclUrl: row.char.wclUrl ?? null,
-        }
-      : null,
-  };
-}
+const { getCycleWindowFor, getNextCycleWindow } = require("../utils/cyclesWindow");
 
 /**
- * Liefert strukturierte Daten für My-Raids.
- * scope: "upcoming" (default) | "all"
+ * Aggregiert Signups des Users inkl. Raid/Char.
+ * Optionen:
+ *  - scope: 'upcoming' | 'all'  (Default: 'upcoming')
+ *  - cycle: 'current' | 'next' | 'all' (Default: 'all')
+ *  - onlyPicked: boolean (Default: false)
+ *
+ * WICHTIG: Nutzer-Zuordnung erfolgt über
+ *  (signup.userId == userId) ODER (signup.char.userId == userId)
+ *  → damit auch Picks gefunden werden, wenn signup.userId nicht gesetzt ist.
  */
-exports.getForUser = async (userId, { scope = "upcoming" } = {}) => {
+async function getForUser(userId, { scope = "upcoming", cycle = "all", onlyPicked = false } = {}) {
   const now = new Date();
+  const userKey = String(userId || "");
 
-  // Signups inklusive Char+Raid+User laden (einmalig)
+  // Optional: Cycle-Filter
+  let dateRange = null;
+  try {
+    if (cycle === "current") {
+      const win = getCycleWindowFor(now);
+      dateRange = { gte: win.start, lt: win.end };
+    } else if (cycle === "next") {
+      const win = getNextCycleWindow(now);
+      dateRange = { gte: win.start, lt: win.end };
+    }
+  } catch (e) {
+    console.warn("[myRaidsService] cycle filter error -> no dateRange:", e?.message || e);
+  }
+
+  // Grundfilter: diesem User zuordnen
+  const whereUser = {
+    OR: [
+      { userId: userKey },
+      { char: { userId: userKey } }, // falls signup.userId leer ist, aber der Char dem User gehört
+    ],
+  };
+
+  // Optional: nur 'PICKED'
+  const wherePicked = onlyPicked ? { status: "PICKED" } : {};
+
   const rows = await prisma.signup.findMany({
-    where: { userId: String(userId) },
+    where: {
+      ...whereUser,
+      ...wherePicked,
+      ...(dateRange ? { raid: { date: dateRange } } : {}),
+    },
     include: {
-      raid: true,
-      char: true,
-      user: {
-        select: { discordId: true, displayName: true, username: true },
+      raid: {
+        select: {
+          id: true,
+          title: true,
+          date: true,
+          difficulty: true,
+          lootType: true,
+          bosses: true,
+          lead: true,
+        },
+      },
+      char: {
+        select: { id: true, name: true, realm: true, class: true, spec: true, userId: true },
       },
     },
-    orderBy: [
-      { raid: { date: "asc" } }, // für "upcoming" nützlich; wir sortieren unten ggf. je Bucket anders
-      { id: "asc" },
-    ],
+    orderBy: [{ raid: { date: "asc" } }, { id: "asc" }],
   });
 
-  const upcoming = { rostered: [], signups: [] };
-  const past = { rostered: [], signups: [] };
+  const mapped = rows
+    .filter((s) => !!s.raid) // nur mit existierendem Raid
+    .map((s) => ({
+      raid: s.raid,
+      signup: {
+        id: s.id,
+        status: s.status,
+        type: s.type,
+        saved: s.saved,
+        note: s.note,
+        class: s.class,
+      },
+      char: s.charId ? s.char : null,
+    }));
 
-  for (const row of rows) {
-    const bucket = row.raid?.date && row.raid.date > now ? upcoming : past;
-    const isRoster = String(row.status).toUpperCase() === "PICKED";
-    if (isRoster) bucket.rostered.push(mapEntry(row));
-    else bucket.signups.push(mapEntry(row));
+  // Split: gepickt vs nicht gepickt
+  const rostered = mapped.filter((x) => String(x.signup.status || "").toUpperCase() === "PICKED");
+  const signups = mapped.filter((x) => String(x.signup.status || "").toUpperCase() !== "PICKED");
+
+  // Split: upcoming vs past
+  const split = (arr) => ({
+    upcoming: arr.filter((x) => new Date(x.raid.date) >= now),
+    past: arr.filter((x) => new Date(x.raid.date) < now),
+  });
+
+  const r = split(rostered);
+  const s = split(signups);
+
+  if (onlyPicked) {
+    const upcoming = { rostered: r.upcoming, signups: [] };
+    const past = { rostered: r.past, signups: [] };
+    return scope === "upcoming" ? { upcoming } : { upcoming, past };
   }
 
-  // Sortierungen (upcoming aufsteigend, past absteigend)
-  const byDateAsc = (a, b) => new Date(a.raid.date) - new Date(b.raid.date);
-  const byDateDesc = (a, b) => new Date(b.raid.date) - new Date(a.raid.date);
+  const upcoming = { rostered: r.upcoming, signups: s.upcoming };
+  const past = { rostered: r.past, signups: s.past };
+  return scope === "upcoming" ? { upcoming } : { upcoming, past };
+}
 
-  upcoming.rostered.sort(byDateAsc);
-  upcoming.signups.sort(byDateAsc);
-  past.rostered.sort(byDateDesc);
-  past.signups.sort(byDateDesc);
-
-  if (scope === "all") {
-    return { upcoming, past };
-  }
-  return { upcoming };
+module.exports = {
+  getForUser,
 };

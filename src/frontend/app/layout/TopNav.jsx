@@ -30,10 +30,12 @@ export default function TopNav() {
           <Tab to="/raids" label="Raids" />
           <Tab to="/presets" label="Presets" />
           <Tab to="/chars" label="Chars" />
+           <Tab to="/MyRaids" label="myRaids" />
           {/* Users nur zeigen, wenn Rolle vorhanden */}
           {!loading && (user?.isRaidlead || user?.isAdmin || user?.isOwner) && (
             <Tab to="/users" label="Users" />
           )}
+          
         </nav>
 
         {/* Auth-Bereich */}

@@ -13,6 +13,12 @@ const PORT = Number(process.env.PORT || 4000);
 // ⚙️ App
 const app = express();
 
+// Sicherheit/Meta
+app.disable("x-powered-by");
+
+// ❗ WICHTIG: Etags aus -> sonst liefert Express für JSON leicht 304
+app.set("etag", false);
+
 // ───────────────── Mini-Logger (statt morgan)
 app.use((req, res, next) => {
   const start = Date.now();
@@ -51,6 +57,16 @@ app.use(
   })
 );
 
+// ❗ Kein Caching für API-Routen -> verhindert 304 "Not Modified"
+const noCache = (_req, res, next) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  res.set("Surrogate-Control", "no-store");
+  next();
+};
+app.use("/api", noCache);
+
 // ───────────────── Dynamic Router Mounting (GENAU 1 Mount je Router)
 function mountRouters() {
   const routesDir = path.join(__dirname, "routes");
@@ -76,7 +92,9 @@ function mountRouters() {
 
       // ✅ Nur EIN Mount-Punkt
       app.use(`/api${basePath}`, router);
-      console.log(`➡️  Mounted ${basePath.replace("/", "")} from ${path.relative(process.cwd(), full)} at /api${basePath}`);
+      console.log(
+        `➡️  Mounted ${basePath.replace("/", "")} from ${path.relative(process.cwd(), full)} at /api${basePath}`
+      );
     } catch (e) {
       console.error(`❌ Router-Load-Fehler für ${path.relative(process.cwd(), full)}:\n`, e);
     }
@@ -85,7 +103,9 @@ function mountRouters() {
 mountRouters();
 
 // Health
-app.get("/api/health", (_req, res) => res.json({ ok: true, env: process.env.NODE_ENV || "development" }));
+app.get("/api/health", (_req, res) =>
+  res.json({ ok: true, env: process.env.NODE_ENV || "development" })
+);
 
 // ───────────────── Frontend (Vite dev/prod) + Discord-Bot Init
 if (!isProd) {
@@ -102,7 +122,7 @@ if (!isProd) {
     console.log(`[info] Frontend root: ${frontendRoot}`);
     viteExpress.listen(app, PORT, () => {
       console.log(`✅ DEV-Server läuft auf http://localhost:${PORT}`);
-      // ⬇️ NEU: Bot initialisieren (login + Button-Handler)
+      // ⬇️ Bot initialisieren (login + Button-Handler)
       try {
         const discordBot = require("./discord-bot");
         discordBot.init(); // async, blockiert nicht
@@ -132,7 +152,7 @@ if (!isProd) {
   }
   app.listen(PORT, () => {
     console.log(`✅ PROD-Server läuft auf http://localhost:${PORT}`);
-    // ⬇️ NEU: Bot initialisieren
+    // ⬇️ Bot initialisieren
     try {
       const discordBot = require("./discord-bot");
       discordBot.init();
