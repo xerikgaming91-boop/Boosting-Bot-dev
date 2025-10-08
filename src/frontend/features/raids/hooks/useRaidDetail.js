@@ -1,9 +1,16 @@
 // src/frontend/features/raids/hooks/useRaidDetail.js
 import { useEffect, useMemo, useState } from "react";
-import { apiListRaidSignups, apiPickSignup, apiUnpickSignup } from "../../../app/api/signupsAPI";
+import { apiGetRaidById } from "@app/api/raidsAPI";
+import {
+  apiListRaidSignups,
+  apiPickSignup,
+  apiUnpickSignup,
+} from "@app/api/signupsAPI";
+import { apiGetMe } from "@app/api/usersAPI";
 
-const U = (x) => String(x || "").toUpperCase();
-const L = (x) => String(x || "").toLowerCase();
+// ---------- Helpers: Labels & Mapping ----------
+const U = (x) => String(x ?? "").toUpperCase();
+const L = (x) => String(x ?? "").toLowerCase();
 
 function labelDiff(d) {
   const v = U(d);
@@ -20,152 +27,199 @@ function labelLoot(l) {
   return l || "-";
 }
 function fmtDate(iso) {
-  try { const d = new Date(iso); return isNaN(d) ? "-" : d.toLocaleString(); }
-  catch { return "-"; }
+  try {
+    const d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d)) return "-";
+    return d.toLocaleString();
+  } catch {
+    return "-";
+  }
 }
-function preferLeadName(raid) {
-  return raid?.leadDisplayName || raid?.leadUsername || raid?.lead || "-";
-}
-function roleKey(t) {
-  const v = L(t);
+function roleKey(type) {
+  const v = L(type);
   if (v.startsWith("tank")) return "tanks";
   if (v.startsWith("heal")) return "heals";
-  if (v.startsWith("dps"))  return "dps";
+  if (v.startsWith("dps")) return "dps";
   if (v.startsWith("loot")) return "loot";
   return "dps";
 }
 
+function toViewRaid(raid) {
+  if (!raid) return null;
+  const leadLabel =
+    raid.leadDisplayName ||
+    raid.leadUsername ||
+    raid.leadName ||
+    raid.lead ||
+    "-";
+
+  return {
+    id: raid.id,
+    title: raid.title || "-",
+    dateLabel: fmtDate(raid.date),
+    diffLabel: labelDiff(raid.difficulty),
+    lootLabel: labelLoot(raid.lootType),
+    bosses: Number.isFinite(Number(raid.bosses)) ? raid.bosses : "-",
+    leadLabel,
+  };
+}
+
+// ---- Signups: tolerant auf API-Formate ----
+// Erlaubt:
+//  - Array<Signup>
+//  - { picked: [], pending: [] }
+//  - { ok:true, picked:[], pending:[] } / { ok:true, signups:[] }
+function normalizeSignupsPayload(payload) {
+  if (!payload) return { picked: [], pending: [] };
+
+  // { ok, picked, pending }
+  if (Array.isArray(payload.picked) || Array.isArray(payload.pending)) {
+    return {
+      picked: payload.picked || [],
+      pending: payload.pending || [],
+    };
+  }
+
+  // { ok, signups: [] } oder direkt []
+  const list = Array.isArray(payload.signups)
+    ? payload.signups
+    : Array.isArray(payload)
+    ? payload
+    : [];
+
+  // Wenn keine Status-Info: alles pending
+  return { picked: [], pending: list };
+}
+
+function groupForView(signups) {
+  const base = () => ({ tanks: [], heals: [], dps: [], loot: [] });
+  const grouped = { saved: base(), open: base() };
+
+  const pushItem = (bucket, s) => {
+    const rk = roleKey(s.type || s.role || s.class || "dps");
+    const label =
+      s.char?.name
+        ? `${s.char.name}${s.char.realm ? "-" + s.char.realm : ""}`
+        : s.displayName || s.userId || "-";
+    bucket[rk].push({
+      id: s.id,
+      who: label,
+      classLabel: s.char?.class || s.class || "",
+      roleLabel: U(s.type || s.role || s.class || "-"),
+      note: s.note || "",
+    });
+  };
+
+  (signups.picked || []).forEach((s) => pushItem(grouped.saved, s));
+  (signups.pending || []).forEach((s) => pushItem(grouped.open, s));
+  return grouped;
+}
+
+// ---------- Hook ----------
 export default function useRaidDetail(raidId) {
-  const [raid, setRaid] = useState(null);
-  const [signups, setSignups] = useState([]);
+  const [raid, setRaid] = useState(null);        // VIEW-Form
+  const [grouped, setGrouped] = useState(null);  // { saved:{...}, open:{...} }
   const [me, setMe] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setErr] = useState("");
   const [busyIds, setBusyIds] = useState(() => new Set());
 
+  // load
   useEffect(() => {
-    if (!raidId || Number.isNaN(raidId)) return;
-    const ac = new AbortController();
+    if (!raidId) return;
+    let aborted = false;
 
     async function load() {
       setLoading(true);
       setErr("");
-
       try {
-        // --- RAID ---
-        let r = await fetch(`/api/raids/${raidId}`, {
-          credentials: "include",
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        if (r.status === 304) {
-          r = await fetch(`/api/raids/${raidId}?_=${Date.now()}`, {
-            credentials: "include",
-            cache: "no-store",
-            signal: ac.signal,
-          });
-        }
-        const rj = await r.json().catch(() => ({}));
-        if (!r.ok || !rj?.ok) throw new Error(rj?.error || `HTTP_${r.status}`);
-        setRaid(rj.raid || null);
+        const [raidRaw, meRes, signupsRaw] = await Promise.all([
+          apiGetRaidById(raidId),
+          apiGetMe().catch(() => ({ user: null })),
+          apiListRaidSignups(raidId),
+        ]);
 
-        // --- ME ---
-        let m = await fetch(`/api/users/me?_=${Date.now()}`, {
-          credentials: "include",
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        const mj = await m.json().catch(() => ({}));
-        if (m.ok && mj?.ok) setMe(mj.user || null);
+        if (aborted) return;
 
-        // --- SIGNUPS ---
-        const list = await apiListRaidSignups(raidId);
-        setSignups(Array.isArray(list) ? list : []);
+        // Raid → View
+        setRaid(toViewRaid(raidRaw?.raid || raidRaw));
+
+        // Me
+        setMe(meRes?.user || null);
+
+        // Signups normalisieren
+        const norm = normalizeSignupsPayload(signupsRaw);
+        setGrouped(groupForView(norm));
       } catch (e) {
-        if (!ac.signal.aborted) setErr(e?.message || "LOAD_FAILED");
+        if (!aborted) setErr(e?.message || "LOAD_FAILED");
       } finally {
-        if (!ac.signal.aborted) setLoading(false);
+        if (!aborted) setLoading(false);
       }
     }
 
     load();
-    return () => ac.abort();
+    return () => { aborted = true; };
   }, [raidId]);
 
+  // permissions (Owner/Admin/Raidlead==lead)
   const canManage = useMemo(() => {
     if (!raid || !me) return false;
-    const isLead = String(raid.lead || "") === String(me.discordId || me.id || "");
-    return !!(me.isOwner || me.isAdmin || isLead);
+    const rl = me?.roleLevel ?? 0;
+    const isOwner = !!me?.isOwner || rl >= 3;
+    const isAdmin = !!me?.isAdmin || rl >= 2;
+    const isLead =
+      (me?.isRaidlead || rl >= 1) &&
+      String(me.discordId || me.id || "") === String((raid && raid.lead) || "");
+    return isOwner || isAdmin || isLead;
   }, [raid, me]);
 
-  const raidView = useMemo(() => {
-    if (!raid) return null;
-    return {
-      id: raid.id,
-      title: raid.title || "-",
-      dateLabel: fmtDate(raid.date),
-      diffLabel: labelDiff(raid.difficulty),
-      lootLabel: labelLoot(raid.lootType),
-      bosses: raid.bosses ?? "-",
-      leadLabel: preferLeadName(raid),
-    };
-  }, [raid]);
-
-  const grouped = useMemo(() => {
-    const base = () => ({ tanks: [], heals: [], dps: [], loot: [] });
-    const g = { saved: base(), open: base() };
-
-    (signups || []).forEach((s) => {
-      const k = roleKey(s.type);
-      const picked = s.saved || U(s.status) === "PICKED";
-      const item = {
-        id: s.id,
-        who: s.char?.name
-          ? `${s.char.name}${s.char.realm ? "-" + s.char.realm : ""}`
-          : (s.displayName || s.userId || "-"),
-        classLabel: s.char?.class || s.class || "",
-        roleLabel: U(s.type || "-"),
-        note: s.note || "",
-        saved: !!picked,
-        statusLabel: U(s.status || "-"),
-      };
-      if (picked) g.saved[k].push(item);
-      else g.open[k].push(item);
-    });
-    return g;
-  }, [signups]);
-
+  // Mutations
   async function pick(id) {
-    if (!id) return;
-    setBusyIds((s) => new Set([...s, id]));
+    if (!id || !canManage) return;
+    setBusyIds((s) => new Set(s).add(id));
     try {
       await apiPickSignup(id);
-      setSignups((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, status: "PICKED", saved: true } : s))
-      );
+      // nur Signups neu laden
+      const list = normalizeSignupsPayload(await apiListRaidSignups(raidId));
+      setGrouped(groupForView(list));
     } catch (e) {
-      console.error("pick failed", e);
       setErr(e?.message || "PICK_FAILED");
     } finally {
-      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      setBusyIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
   }
 
   async function unpick(id) {
-    if (!id) return;
-    setBusyIds((s) => new Set([...s, id]));
+    if (!id || !canManage) return;
+    setBusyIds((s) => new Set(s).add(id));
     try {
       await apiUnpickSignup(id);
-      setSignups((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, status: "SIGNUPED", saved: false } : s))
-      );
+      const list = normalizeSignupsPayload(await apiListRaidSignups(raidId));
+      setGrouped(groupForView(list));
     } catch (e) {
-      console.error("unpick failed", e);
       setErr(e?.message || "UNPICK_FAILED");
     } finally {
-      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      setBusyIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
   }
 
-  return { raid: raidView, grouped, canManage, loading, error, pick, unpick, busyIds };
+  return {
+    raid,          // { title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
+    grouped,       // { saved:{tanks,heals,dps,loot}, open:{...} }
+    canManage,
+    loading,
+    error,
+    pick,
+    unpick,
+    busyIds,
+  };
 }
