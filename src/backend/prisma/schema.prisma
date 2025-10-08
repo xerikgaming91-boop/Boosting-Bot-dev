@@ -1,4 +1,3 @@
-// src/backend/Prisma/schema.prisma
 generator client {
   provider      = "prisma-client-js"
   engineType    = "binary"
@@ -7,31 +6,35 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  // HINWEIS: relativ zum Ordner 'src/backend/Prisma'
-  url      = env("DATABASE_URL") // -> "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id          Int      @id @default(autoincrement())
-  discordId   String   @unique
+  id          Int     @id @default(autoincrement())
+  discordId   String  @unique
   username    String?
   displayName String?
   avatarUrl   String?
 
   // Rollen
-  rolesCsv    String?
-  isRaidlead  Boolean  @default(false)
-  isAdmin     Boolean  @default(false)
-  isOwner     Boolean  @default(false)
+  rolesCsv   String?
+  isRaidlead Boolean @default(false)
+  isAdmin    Boolean @default(false)
+  isOwner    Boolean @default(false)
 
   highestRole String?
-  roleLevel   Int      @default(0)
+  roleLevel   Int     @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // bestehende Relationen
   chars   BoosterChar[]
   signups Signup[]
+
+  // 🔹 NEU: Gegenrelationen für die neuen Modelle (keine DB-Spalten!)
+  strikes Strike[] // <- neues Back-Relation-Feld
+  events  SignupEvent[] // <- neues Back-Relation-Feld
 }
 
 model Raid {
@@ -54,10 +57,14 @@ model Raid {
   presetId Int?
   preset   Preset? @relation(fields: [presetId], references: [id])
 
+  // bestehend
   signups Signup[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // 🔹 NEU: Gegenrelation zu SignupEvent
+  events SignupEvent[]
 
   @@index([date])
 }
@@ -74,7 +81,7 @@ model Preset {
 
 model BoosterChar {
   id        Int     @id @default(autoincrement())
-  userId    String  // Discord User ID (FK -> User.discordId)
+  userId    String // Discord User ID (FK -> User.discordId)
   name      String
   realm     String
   class     String?
@@ -86,39 +93,81 @@ model BoosterChar {
 
   updatedAt DateTime @updatedAt
 
-  user    User       @relation(fields: [userId], references: [discordId], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [discordId], onDelete: Cascade)
+
+  // bestehend
   signups Signup[]
 
-  // Ein User kann denselben Char (Name+Realm) nur einmal anlegen
-  @@unique([userId, name, realm])
+  // 🔹 NEU: Gegenrelation zu SignupEvent
+  events SignupEvent[]
 
+  // ✨ Eindeutigkeit: Ein User kann denselben Char (Name+Realm) nur einmal anlegen
+  @@unique([userId, name, realm])
   @@index([userId])
   @@index([name])
   @@index([realm])
 }
 
 model Signup {
-  id          Int      @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   raidId      Int
   userId      String?
-  type        String   @default("DPS")
+  type        String  @default("DPS")
   charId      Int?
   displayName String?
-  saved       Boolean  @default(false)
+  saved       Boolean @default(false)
   note        String?
   class       String?
-  status      String   @default("SIGNUPED")
+  status      String  @default("SIGNUPED")
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  raid  Raid         @relation(fields: [raidId], references: [id], onDelete: Cascade)
-  char  BoosterChar? @relation(fields: [charId], references: [id], onDelete: SetNull)
-  user  User?        @relation(fields: [userId], references: [discordId], onDelete: SetNull)
+  raid Raid         @relation(fields: [raidId], references: [id], onDelete: Cascade)
+  char BoosterChar? @relation(fields: [charId], references: [id], onDelete: SetNull)
+  user User?        @relation(fields: [userId], references: [discordId], onDelete: SetNull)
 
+  // ✨ Ein Char darf sich in EINEM Raid nur EINMAL befinden
+  @@unique([raidId, charId])
   @@index([raidId])
   @@index([userId])
   @@index([charId])
+}
 
-  // Ein Char darf sich in EINEM Raid nur EINMAL befinden
-  @@unique([raidId, charId])
+// ---------------------------------------------------------------------------
+// 💡 NEU (additiv): Strikes & Event-Log – mit Back-Relations oben eingefügt
+// ---------------------------------------------------------------------------
+
+model Strike {
+  id        Int       @id @default(autoincrement())
+  userId    String
+  reason    String
+  weight    Int       @default(1)
+  expiresAt DateTime?
+  createdBy String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [discordId], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model SignupEvent {
+  id        Int      @id @default(autoincrement())
+  raidId    Int?
+  userId    String
+  charId    Int?
+  type      String // SIGNUP | CANCEL | NOSHOW | CONFIRM | NOTE | STRIKE_ADD | STRIKE_REMOVE
+  note      String?
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  raid Raid?        @relation(fields: [raidId], references: [id], onDelete: SetNull)
+  user User         @relation(fields: [userId], references: [discordId], onDelete: Cascade)
+  char BoosterChar? @relation(fields: [charId], references: [id], onDelete: SetNull)
+
+  @@index([raidId])
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
 }

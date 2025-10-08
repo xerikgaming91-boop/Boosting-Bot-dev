@@ -87,7 +87,7 @@ mountRouters();
 // Health
 app.get("/api/health", (_req, res) => res.json({ ok: true, env: process.env.NODE_ENV || "development" }));
 
-// ───────────────── Frontend (Vite dev/prod)
+// ───────────────── Frontend (Vite dev/prod) + Discord-Bot Init
 if (!isProd) {
   // DEV: Vite-Express (optional)
   let viteExpress;
@@ -102,10 +102,23 @@ if (!isProd) {
     console.log(`[info] Frontend root: ${frontendRoot}`);
     viteExpress.listen(app, PORT, () => {
       console.log(`✅ DEV-Server läuft auf http://localhost:${PORT}`);
+      // ⬇️ NEU: Bot initialisieren (login + Button-Handler)
+      try {
+        const discordBot = require("./discord-bot");
+        discordBot.init(); // async, blockiert nicht
+      } catch (e) {
+        console.warn("[discord-bot] init skipped:", e?.message || e);
+      }
     });
   } else {
     app.listen(PORT, () => {
       console.log(`✅ (ohne Vite) Server läuft auf http://localhost:${PORT}`);
+      try {
+        const discordBot = require("./discord-bot");
+        discordBot.init();
+      } catch (e) {
+        console.warn("[discord-bot] init skipped:", e?.message || e);
+      }
     });
   }
 } else {
@@ -119,5 +132,12 @@ if (!isProd) {
   }
   app.listen(PORT, () => {
     console.log(`✅ PROD-Server läuft auf http://localhost:${PORT}`);
+    // ⬇️ NEU: Bot initialisieren
+    try {
+      const discordBot = require("./discord-bot");
+      discordBot.init();
+    } catch (e) {
+      console.warn("[discord-bot] init skipped:", e?.message || e);
+    }
   });
 }

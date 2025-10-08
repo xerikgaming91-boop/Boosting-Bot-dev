@@ -106,6 +106,16 @@ export default function RaidListTable({
                     </button>
                   )}
                 </td>
+                 <td className="px-4 py-3 text-right">
+                  {typeof onDelete === "function" && (
+                    <button
+                      className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
+                      onClick={() => onDelete(r.id)}
+                    >
+                      Detail
+                    </button>
+                  )}
+                </td>
               </tr>
             );
           })}

@@ -1,53 +1,85 @@
 // src/frontend/features/chars/pages/CharsList.jsx
 import React from "react";
+import useMyChars from "../hooks/useMyChars";
+import CharImportForm from "../components/CharImportForm";
 
 export default function CharsList() {
+  const { chars, loading, error, preview, importChar, removeChar } = useMyChars();
+
+  const errText = error?.message || error;
+  const is401 = Number(error?.status) === 401;
+
   return (
-    <div className="space-y-6">
-      <section className="card p-6">
-        <header className="mb-4">
-          <h1 className="text-xl font-semibold">Chars</h1>
-          <p className="text-sm text-zinc-300">
-            Charaktere verwalten. (Später: Filter, Sortierung, Import aus Discord/Logs.)
-          </p>
-        </header>
+    <div className="container mx-auto px-4 py-8">
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-zinc-100">Meine Chars</h1>
 
-        {/* Toolbar */}
-        <div className="mb-4 flex flex-wrap gap-2">
-          <button type="button" className="btn-primary">Neu anlegen</button>
-          <button type="button" className="btn-ghost">Import</button>
+      {is401 ? (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
+          Bitte zuerst einloggen (Discord OAuth), um deine Chars zu verwalten.
         </div>
+      ) : (
+        <>
+          <div className="mb-6">
+            <CharImportForm onPreview={preview} onImport={importChar} loading={loading} />
+          </div>
 
-        {/* Tabelle (Platzhalter) */}
-        <div className="overflow-x-auto rounded-lg border border-white/10">
-          <table className="min-w-full text-sm">
-            <thead className="bg-white/5 text-zinc-300">
-              <tr>
-                <th className="px-3 py-2 text-left">Name</th>
-                <th className="px-3 py-2 text-left">Klasse</th>
-                <th className="px-3 py-2 text-left">Rolle</th>
-                <th className="px-3 py-2 text-left">iLvl</th>
-                <th className="px-3 py-2 text-left">Aktionen</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-t border-white/10">
-                <td className="px-3 py-2">—</td>
-                <td className="px-3 py-2">—</td>
-                <td className="px-3 py-2">—</td>
-                <td className="px-3 py-2">—</td>
-                <td className="px-3 py-2">
-                  <div className="flex gap-2">
-                    <button className="btn-ghost">Bearbeiten</button>
-                    <button className="btn-ghost">Löschen</button>
-                  </div>
-                </td>
-              </tr>
-              {/* echte Daten folgen via Hook/Service */}
-            </tbody>
-          </table>
-        </div>
-      </section>
+          <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/70">
+            <div className="border-b border-zinc-800/60 px-5 py-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">
+                Gespeicherte Chars
+              </h2>
+            </div>
+
+            <div className="px-3 py-3">
+              {loading ? (
+                <div className="px-3 py-10 text-center text-zinc-400">Lädt …</div>
+              ) : errText ? (
+                <div className="px-3 py-6 text-sm text-red-400">Fehler: {String(errText)}</div>
+              ) : !Array.isArray(chars) || chars.length === 0 ? (
+                <div className="px-3 py-10 text-center text-zinc-400">Noch keine Chars angelegt.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-zinc-800 text-sm">
+                    <thead className="text-zinc-400">
+                      <tr>
+                        <th className="px-4 py-2 text-left">Name</th>
+                        <th className="px-4 py-2 text-left">Realm</th>
+                        <th className="px-4 py-2 text-left">Klasse</th>
+                        <th className="px-4 py-2 text-left">Spec</th>
+                        <th className="px-4 py-2 text-left">ILvl</th>
+                        <th className="px-4 py-2 text-left">RIO</th>
+                        <th className="px-4 py-2 text-left">Progress</th>
+                        <th className="px-4 py-2 text-left">Aktion</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800 text-zinc-200">
+                      {chars.map((c) => (
+                        <tr key={`${c.userId}:${c.name}:${c.realm}`}>
+                          <td className="px-4 py-2 font-medium">{c.name}</td>
+                          <td className="px-4 py-2">{c.realm}</td>
+                          <td className="px-4 py-2">{c.class || "–"}</td>
+                          <td className="px-4 py-2">{c.spec || "–"}</td>
+                          <td className="px-4 py-2">{c.itemLevel ?? "–"}</td>
+                          <td className="px-4 py-2">{c.rioScore ?? "–"}</td>
+                          <td className="px-4 py-2">{c.progress || "–"}</td>
+                          <td className="px-4 py-2">
+                            <button
+                              onClick={() => removeChar(c.id)}
+                              className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                            >
+                              Löschen
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

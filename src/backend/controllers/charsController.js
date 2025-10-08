@@ -1,14 +1,12 @@
 // src/backend/controllers/charsController.js
 /**
- * Chars Controller (MVC – schlank, Service-zentriert)
+ * Chars Controller (MVCS)
  *
- * Erwartete Routen (typisch in routes/charsRoutes.js):
- *   GET    /api/chars/my                      → listMine
- *   GET    /api/chars/user/:discordId         → listByUser   (lead/admin/owner ODER self)
- *   GET    /api/chars/:id                     → getOne       (lead/admin/owner ODER owner des Chars)
- *   POST   /api/chars                         → create       (auth; legt Char für req.user an)
- *   PATCH  /api/chars/:id                     → update       (lead/admin/owner ODER owner des Chars)
- *   DELETE /api/chars/:id                     → remove       (lead/admin/owner ODER owner des Chars)
+ * Routen siehe routes/charsRoutes.js
+ * Grundlogik:
+ *  - PREVIEW: zeigt "RAW" Raider.IO-Daten (keine DB-Mischung)
+ *  - CREATE: legt Char über Raider.IO an (importOneForUser), Eingabe nur name+realm(+region)
+ *  - IMPORT: wie CREATE, aber eigener Endpunkt
  */
 
 const svc = require("../services/charService");
@@ -29,7 +27,6 @@ function isSelf(req, discordId) {
 
 /* --------------------------------- GETs --------------------------------- */
 
-// Eigene Chars
 async function listMine(req, res) {
   if (!requireAuthLocal(req, res)) return;
   try {
@@ -37,16 +34,20 @@ async function listMine(req, res) {
     return res.json({ ok: true, chars: rows });
   } catch (e) {
     console.error("[chars/listMine] error:", e);
-    return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
+    return res
+      .status(e?.status || 500)
+      .json({ ok: false, error: e?.message || "SERVER_ERROR" });
   }
 }
 
-// Chars eines Users (nur self oder Lead/Admin/Owner)
 async function listByUser(req, res) {
   if (!requireAuthLocal(req, res)) return;
   try {
     const discordId = String(req.params.discordId || "");
-    if (!discordId) return res.status(400).json({ ok: false, error: "discordId_required" });
+    if (!discordId)
+      return res
+        .status(400)
+        .json({ ok: false, error: "discordId_required" });
 
     if (!isLead(req.user) && !isSelf(req, discordId)) {
       return res.status(403).json({ ok: false, error: "FORBIDDEN" });
@@ -56,16 +57,18 @@ async function listByUser(req, res) {
     return res.json({ ok: true, chars: rows });
   } catch (e) {
     console.error("[chars/listByUser] error:", e);
-    return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
+    return res
+      .status(e?.status || 500)
+      .json({ ok: false, error: e?.message || "SERVER_ERROR" });
   }
 }
 
-// Einzelner Char (nur self oder Lead/Admin/Owner)
 async function getOne(req, res) {
   if (!requireAuthLocal(req, res)) return;
   try {
     const id = Number(req.params.id);
-    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "INVALID_ID" });
+    if (!Number.isFinite(id))
+      return res.status(400).json({ ok: false, error: "INVALID_ID" });
 
     const row = await svc.getChar(id);
     if (!row) return res.status(404).json({ ok: false, error: "CHAR_NOT_FOUND" });
@@ -76,85 +79,156 @@ async function getOne(req, res) {
     return res.json({ ok: true, char: row });
   } catch (e) {
     console.error("[chars/getOne] error:", e);
-    return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
+    return res
+      .status(e?.status || 500)
+      .json({ ok: false, error: e?.message || "SERVER_ERROR" });
+  }
+}
+
+/* ------------------------------ Raider.IO -------------------------------- */
+
+/** Vorschau: reiner Raider.IO-Output (kein DB-Merge) */
+async function preview(req, res) {
+  if (!requireAuthLocal(req, res)) return;
+  try {
+    const name = String(req.query.name || req.body?.name || "").trim();
+    const realm = String(req.query.realm || req.body?.realm || "").trim();
+    const region = String(req.query.region || req.body?.region || "eu")
+      .trim()
+      .toLowerCase();
+
+    if (!name || !realm)
+      return res
+        .status(400)
+        .json({ ok: false, error: "name_and_realm_required" });
+
+    const fields = await svc.previewFromRaiderIO({ name, realm, region });
+    return res.json({ ok: true, preview: fields });
+  } catch (e) {
+    return res
+      .status(e?.status || 500)
+      .json({ ok: false, error: e?.message || "preview_failed" });
+  }
+}
+
+/** Import eines Chars (upsert, owner = req.user) */
+async function importOne(req, res) {
+  if (!requireAuthLocal(req, res)) return;
+  try {
+    const name = String(req.body?.name || "").trim();
+    const realm = String(req.body?.realm || "").trim();
+    const region = String(req.body?.region || "eu").trim().toLowerCase();
+    if (!name || !realm)
+      return res
+        .status(400)
+        .json({ ok: false, error: "name_and_realm_required" });
+
+    const saved = await svc.importOneForUser({
+      discordId: req.user.discordId,
+      name,
+      realm,
+      region,
+    });
+    return res.json({ ok: true, char: saved });
+  } catch (e) {
+    return res
+      .status(e?.status || 500)
+      .json({ ok: false, error: e?.message || "import_failed" });
+  }
+}
+
+/** Bulk-Import */
+async function importMany(req, res) {
+  if (!requireAuthLocal(req, res)) return;
+  try {
+    const list = Array.isArray(req.body?.list) ? req.body.list : [];
+    const region = String(req.body?.region || "eu").trim().toLowerCase();
+    if (!list.length)
+      return res.status(400).json({ ok: false, error: "list_required" });
+
+    const results = await svc.importManyForUser({
+      discordId: req.user.discordId,
+      list,
+      region,
+    });
+    return res.json({ ok: true, results });
+  } catch (e) {
+    return res
+      .status(e?.status || 500)
+      .json({ ok: false, error: e?.message || "import_many_failed" });
   }
 }
 
 /* -------------------------------- Writes -------------------------------- */
 
-// Neuen Char für eingeloggten User anlegen
+/**
+ * CREATE: Grundlogik = Raider.IO Import
+ * Body: { name, realm, region? }
+ * -> ruft importOneForUser(); ignoriert andere Felder
+ */
 async function create(req, res) {
   if (!requireAuthLocal(req, res)) return;
   try {
-    const body = req.body || {};
-    const payload = {
-      userId: req.user.discordId, // owner ist immer der eingeloggte User
-      name: body.name,
-      realm: body.realm,
-      class: body.class,
-      spec: body.spec,
-      rioScore: body.rioScore,
-      progress: body.progress,
-      itemLevel: body.itemLevel,
-      wclUrl: body.wclUrl,
-    };
+    const name = String(req.body?.name || "").trim();
+    const realm = String(req.body?.realm || "").trim();
+    const region = String(req.body?.region || "eu").trim().toLowerCase();
 
-    const created = await svc.createChar(payload);
-    return res.status(201).json({ ok: true, char: created });
+    if (!name || !realm)
+      return res
+        .status(400)
+        .json({ ok: false, error: "name_and_realm_required" });
+
+    const saved = await svc.importOneForUser({
+      discordId: req.user.discordId,
+      name,
+      realm,
+      region,
+    });
+    return res.status(201).json({ ok: true, char: saved });
   } catch (e) {
-    // P2002: Unique (userId,name,realm)
-    if (e?.code === "P2002") {
-      return res.status(409).json({ ok: false, error: "CHAR_ALREADY_EXISTS" });
-    }
-    if (e?.code === "VALIDATION") {
-      return res.status(400).json({ ok: false, error: e.message });
-    }
-    console.error("[chars/create] error:", e);
-    return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
+    const status = e?.status || 500;
+    return res.status(status).json({ ok: false, error: e?.message || "SERVER_ERROR" });
   }
 }
 
-// Char ändern (nur owner oder Lead/Admin/Owner)
+/** UPDATE/DELETE bleiben wie gehabt (Owner oder Lead/Admin/Owner) */
 async function update(req, res) {
   if (!requireAuthLocal(req, res)) return;
   try {
     const id = Number(req.params.id);
-    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "INVALID_ID" });
+    if (!Number.isFinite(id))
+      return res.status(400).json({ ok: false, error: "INVALID_ID" });
 
     const current = await svc.getChar(id);
-    if (!current) return res.status(404).json({ ok: false, error: "CHAR_NOT_FOUND" });
+    if (!current)
+      return res.status(404).json({ ok: false, error: "CHAR_NOT_FOUND" });
 
     if (!isLead(req.user) && !isSelf(req, current.userId)) {
       return res.status(403).json({ ok: false, error: "FORBIDDEN" });
     }
 
     const patch = { ...(req.body || {}) };
-    // Schutz: userId darf nicht beliebig geändert werden
     if (!isLead(req.user)) delete patch.userId;
 
     const saved = await svc.updateChar(id, patch);
     return res.json({ ok: true, char: saved });
   } catch (e) {
-    if (e?.code === "P2002") {
-      return res.status(409).json({ ok: false, error: "CHAR_ALREADY_EXISTS" });
-    }
-    if (e?.code === "P2025") {
-      return res.status(404).json({ ok: false, error: "CHAR_NOT_FOUND" });
-    }
-    console.error("[chars/update] error:", e);
-    return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
+    return res
+      .status(e?.status || 500)
+      .json({ ok: false, error: e?.message || "SERVER_ERROR" });
   }
 }
 
-// Char löschen (nur owner oder Lead/Admin/Owner)
 async function remove(req, res) {
   if (!requireAuthLocal(req, res)) return;
   try {
     const id = Number(req.params.id);
-    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "INVALID_ID" });
+    if (!Number.isFinite(id))
+      return res.status(400).json({ ok: false, error: "INVALID_ID" });
 
     const current = await svc.getChar(id);
-    if (!current) return res.status(404).json({ ok: false, error: "CHAR_NOT_FOUND" });
+    if (!current)
+      return res.status(404).json({ ok: false, error: "CHAR_NOT_FOUND" });
 
     if (!isLead(req.user) && !isSelf(req, current.userId)) {
       return res.status(403).json({ ok: false, error: "FORBIDDEN" });
@@ -163,11 +237,9 @@ async function remove(req, res) {
     const deleted = await svc.deleteChar(id);
     return res.json({ ok: true, char: deleted });
   } catch (e) {
-    if (e?.code === "P2025") {
-      return res.status(404).json({ ok: false, error: "CHAR_NOT_FOUND" });
-    }
-    console.error("[chars/remove] error:", e);
-    return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
+    return res
+      .status(e?.status || 500)
+      .json({ ok: false, error: e?.message || "SERVER_ERROR" });
   }
 }
 
@@ -178,4 +250,7 @@ module.exports = {
   create,
   update,
   remove,
+  preview,
+  importOne,
+  importMany,
 };

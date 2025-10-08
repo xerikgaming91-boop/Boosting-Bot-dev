@@ -12,7 +12,6 @@ const path = require("path");
 const router = express.Router();
 
 const ctrl = require("../controllers/raidsController.js");
-// Wichtig: korrekter Pfad + .js (Windows / require)
 const { attachUser, requireAuth } = require(path.join(__dirname, "../middlewares/auth.js"));
 
 // Session-User für alle Raid-Routen anhängen
@@ -36,10 +35,6 @@ router.patch("/:id", requireAuth, ctrl.update);
 
 // Löschen (nur eingeloggte; Rollen-Check macht Controller)
 router.delete("/:id", requireAuth, ctrl.remove);
-
-// Picks (nur eingeloggte; Rollen-Check macht Controller)
-router.post("/:raidId/picks/:signupId", requireAuth, ctrl.pick);
-router.delete("/:raidId/picks/:signupId", requireAuth, ctrl.unpick);
 
 /* ------------------------------ Export ---------------------------------- */
 
