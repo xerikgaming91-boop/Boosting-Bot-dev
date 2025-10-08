@@ -1,8 +1,9 @@
 // src/frontend/features/raids/pages/RaidsList.jsx
-import React from "react";
-import { useRaidBootstrap } from "../hooks/useRaidBootstrap";
+import React, { useMemo } from "react";
+import { useRaidBootstrap } from "../hooks/useRaid";
 import RaidCreateForm from "../components/RaidCreateForm";
 import RaidListTable from "../components/RaidListTable";
+import { buildRaidRowsVm } from "../VM/raidListVM";
 
 export default function RaidsList() {
   const {
@@ -14,11 +15,12 @@ export default function RaidsList() {
     error,
     createRaid,
     deleteRaid,
-
     canCreateRaid,
     canPickLead,
     canViewRaids,
   } = useRaidBootstrap();
+
+  const rowsVm = useMemo(() => buildRaidRowsVm(raids, leads), [raids, leads]);
 
   if (!me) {
     return (
@@ -47,7 +49,6 @@ export default function RaidsList() {
       <h1 className="mb-6 text-2xl font-semibold tracking-tight text-zinc-100">Raids</h1>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Create nur für Owner/Admin/Raidlead */}
         {canCreateRaid && (
           <section className="lg:col-span-12">
             <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/70 shadow-xl ring-1 ring-black/5 backdrop-blur">
@@ -60,7 +61,7 @@ export default function RaidsList() {
                 <RaidCreateForm
                   me={me}
                   leads={leads}
-                  canPickLead={canPickLead}   // <-- Lead-Feld nur für Owner/Admin
+                  canPickLead={canPickLead}
                   onCreate={createRaid}
                   loading={false}
                 />
@@ -72,7 +73,6 @@ export default function RaidsList() {
           </section>
         )}
 
-        {/* Liste (alle mit min Lootbuddy) */}
         <section className="lg:col-span-12">
           <div className="mt-6 rounded-2xl border border-zinc-800/60 bg-zinc-900/70 shadow-xl ring-1 ring-black/5 backdrop-blur">
             <div className="border-b border-zinc-800/60 px-5 py-4">
@@ -86,10 +86,8 @@ export default function RaidsList() {
                 <div className="px-3 py-10 text-center text-zinc-400">Lädt …</div>
               ) : error ? (
                 <div className="px-3 py-6 text-sm text-red-400">Fehler beim Laden der Raids.</div>
-              ) : Array.isArray(raids) && raids.length > 0 ? (
-                <RaidListTable rows={raids} leads={leads} onDelete={deleteRaid} me={me} onlyFuture={false} />
               ) : (
-                <div className="px-3 py-10 text-center text-zinc-400">Noch keine Raids angelegt.</div>
+                <RaidListTable rows={rowsVm} onDelete={deleteRaid} />
               )}
             </div>
           </div>

@@ -1,4 +1,4 @@
-// src/frontend/features/raids/hooks/useRaidBootstrap.js
+// src/frontend/features/raids/hooks/useRaid.js
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   apiListRaids,
@@ -80,22 +80,22 @@ export function useRaidBootstrap() {
   // ---- mutations ---------------------------------------------------------
   const createRaid = useCallback(async (payload) => {
     const raid = await apiCreateRaid(payload);
-    setRaids((prev) => [raid, ...prev].sort(sortRaids));
-    return raid;
+    setRaids((prev) => [raid, ...(prev || [])].sort(sortRaids));
+    return { ok: true, raid }; // <<< wichtig für dein useRaidCreateForm
   }, []);
 
   const updateRaid = useCallback(async (id, patch) => {
     const raid = await apiUpdateRaid(id, patch);
     setRaids((prev) =>
-      prev.map((r) => (String(r.id) === String(id) ? raid : r)).sort(sortRaids)
+      (prev || []).map((r) => (String(r.id) === String(id) ? raid : r)).sort(sortRaids)
     );
-    return raid;
+    return { ok: true, raid };
   }, []);
 
   const deleteRaid = useCallback(async (id) => {
     await apiDeleteRaid(id);
-    setRaids((prev) => prev.filter((r) => String(r.id) !== String(id)));
-    return true;
+    setRaids((prev) => (prev || []).filter((r) => String(r.id) !== String(id)));
+    return { ok: true };
   }, []);
 
   return {

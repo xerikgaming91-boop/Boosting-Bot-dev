@@ -21,7 +21,9 @@ const signupSvc = require("../services/signupService");
 const signups = require("../models/signupModel");
 const raids = require("../models/raidModel");
 const chars = require("../models/charModel");
-const { getCycleBounds } = require("../utils/cycles");
+
+// 👉 Cycle (Mi 08:00 → Mi 07:00) – statt utils/cycles jetzt cycleWindow
+const { getCycleWindowFor } = require("../utils/cycleWindow");
 const { prisma } = require("../prismaClient.js");
 
 // optionaler Bot-Sync
@@ -49,8 +51,8 @@ async function ensureOwnCharOrLead(reqUser, charId) {
 }
 
 /**
- * Cycle-Duplikat-Prüfung für PICKED (Char darf im selben Cycle nicht
- * in einem anderen Raid bereits PICKED sein).
+ * Cycle-Duplikat-Prüfung für PICKED:
+ * Char darf im selben Cycle UND in derselben Difficulty nicht bereits in anderem Raid PICKED sein.
  */
 async function assertNoPickedDuplicateInCycle({ targetRaidId, charId, excludeSignupId }) {
   if (!charId) return;
@@ -60,20 +62,26 @@ async function assertNoPickedDuplicateInCycle({ targetRaidId, charId, excludeSig
     e.code = "VALIDATION";
     throw e;
   }
-  const { start, end } = getCycleBounds(targetRaid.date);
+  const { start, end } = getCycleWindowFor(new Date(targetRaid.date));
+  const targetDiff = String(targetRaid.difficulty || "").toUpperCase();
+
   const existing = await prisma.signup.findFirst({
     where: {
       charId: Number(charId),
       status: "PICKED",
-      raid: { date: { gte: start, lt: end } },
+      raid: {
+        date: { gte: start, lt: end },
+        difficulty: targetDiff, // 🔒 nur gleiche Difficulty blockiert
+      },
       ...(excludeSignupId ? { NOT: { id: Number(excludeSignupId) } } : {}),
     },
     select: { id: true, raidId: true },
   });
+
   if (existing && Number(existing.raidId) !== Number(targetRaidId)) {
-    const err = new Error("CHAR_ALREADY_PICKED_IN_CYCLE");
+    const err = new Error("CHAR_ALREADY_PICKED_IN_CYCLE_SAME_DIFFICULTY");
     err.code = "CYCLE_CONFLICT";
-    err.meta = { conflictSignupId: existing.id, conflictRaidId: existing.raidId, cycleStart: start, cycleEnd: end };
+    err.meta = { conflictSignupId: existing.id, conflictRaidId: existing.raidId, cycleStart: start, cycleEnd: end, difficulty: targetDiff };
     throw err;
   }
 }
@@ -337,7 +345,7 @@ async function pick(req, res) {
     const canPick = isLead(req.user) && (req.user.isAdmin || req.user.isOwner || String(raid.lead || "") === String(req.user.discordId || ""));
     if (!canPick) return res.status(403).json({ ok:false, error:"FORBIDDEN" });
 
-    // Cycle-Check
+    // Cycle-Check inkl. Difficulty
     await assertNoPickedDuplicateInCycle({ targetRaidId: s.raidId, charId: s.charId, excludeSignupId: s.id });
 
     const saved = await signups.update(id, { saved: true, status: "PICKED" }, { withChar:true, withUser:false });

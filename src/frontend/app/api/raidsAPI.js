@@ -3,7 +3,7 @@
 
 const API_BASE = import.meta?.env?.VITE_API_BASE || "";
 
-/** interner Fetch-Helper mit Credentials und Cache-Bust */
+/** interner Fetch-Helper mit Credentials und Cache-Bust + strukturierte Fehler */
 async function http(path, opts = {}) {
   const method = (opts.method || "GET").toUpperCase();
 
@@ -26,22 +26,24 @@ async function http(path, opts = {}) {
     ...opts,
   });
 
-  // 304 kann in Dev über Proxy passieren – wir behandeln es wie "ok ohne Body"
+  // 304 kann im Dev über Proxy passieren – wie "ok ohne Body" behandeln
   if (res.status === 304) {
-    // als leerer Body werten (wir haben ohnehin Cache-Bust → sollte selten sein)
     return {};
   }
 
-  const isJson = res.headers.get("content-type")?.includes("application/json");
+  const ct = res.headers.get("content-type") || "";
+  const isJson = ct.includes("application/json");
   const body = isJson ? await res.json().catch(() => ({})) : null;
 
   if (!res.ok) {
-    const msg = body?.error || `${res.status} ${res.statusText}`;
+    // Backend sendet z.B. { ok:false, error, message, bounds? }
+    const msg = body?.message || body?.error || `${res.status} ${res.statusText}`;
     const err = new Error(msg);
     err.status = res.status;
+    err.body = body;
     throw err;
   }
-  return body;
+  return body || {};
 }
 
 /** Liste aller Raids – Backend liefert { ok, raids } */
@@ -80,5 +82,6 @@ export async function apiUpdateRaid(id, patch) {
 export async function apiDeleteRaid(id) {
   if (!id && id !== 0) throw new Error("id_required");
   const data = await http(`/raids/${id}`, { method: "DELETE" });
+  // kompatibel zu deiner bisherigen Nutzung (boolean)
   return data?.ok ?? true;
 }

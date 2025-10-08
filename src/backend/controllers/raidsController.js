@@ -7,6 +7,9 @@
 
 const raids = require("../models/raidModel");
 
+// ✨ Cycle-Window (Mi 08:00 → Mi 07:00)
+const { getCurrentCycleWindow, getNextCycleWindow } = require("../utils/cycleWindow");
+
 // Discord-Bot (failsafe, wenn nicht verfügbar)
 let discordBot = null;
 try {
@@ -38,13 +41,13 @@ function buildAutoTitle({ instance = DEFAULT_INSTANCE, difficulty = "Heroic", lo
     : "Heroic";
 
   const lootLabel =
-    (lootType || "").toLowerCase() === "saved"   ? "Saved"
+    (lootType || "").toLowerCase() === "saved"     ? "Saved"
     : (lootType || "").toLowerCase() === "unsaved" ? "UnSaved"
     : "VIP";
 
   if (diffLabel === "Mythic") {
     const b = Number.isFinite(Number(bosses)) ? Number(bosses) : 0;
-    const safe = Math.max(0, Math.min(8, b));
+    const safe = Math.max(1, Math.min(8, b));
     return `${instance} Mythic ${lootLabel} ${safe}/8`;
   }
   return `${instance} ${diffLabel} ${lootLabel}`;
@@ -67,9 +70,11 @@ async function list(_req, res) {
 async function getOne(req, res) {
   try {
     const id = Number(req.params.id);
-    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "INVALID_ID" });
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ ok: false, error: "INVALID_ID", message: "Ungültige Raid-ID." });
+    }
     const raid = await raids.findOne(id);
-    if (!raid) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
+    if (!raid) return res.status(404).json({ ok: false, error: "NOT_FOUND", message: "Raid wurde nicht gefunden." });
     return res.json({ ok: true, raid });
   } catch (e) {
     console.error("[raids/getOne]", e);
@@ -81,7 +86,7 @@ async function getOne(req, res) {
 async function create(req, res) {
   try {
     if (!isLeadOrAdminOrOwner(req.user)) {
-      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+      return res.status(403).json({ ok: false, error: "FORBIDDEN", message: "Keine Berechtigung einen Raid zu erstellen." });
     }
 
     const instance   = normStr(req.body?.instance) || DEFAULT_INSTANCE;
@@ -89,24 +94,59 @@ async function create(req, res) {
     const lootType   = normStr(req.body?.lootType)   || "vip";    // saved|unsaved|vip
     const lead       = normStr(req.body?.lead) || req.user?.discordId || null;
 
+    // Datum parsen
     let date = req.body?.date ? new Date(req.body.date) : null;
     if (!date || Number.isNaN(date.getTime())) {
-      return res.status(400).json({ ok: false, error: "INVALID_DATE" });
+      return res.status(400).json({ ok: false, error: "INVALID_DATE", message: "Ungültiges Datum." });
     }
 
+    // ✨ Cycle-Validierung (Mi 08:00 → Mi 07:00), nur aktueller ODER nächster Cycle
+    const now = new Date();
+    if (date.getTime() < now.getTime()) {
+      return res.status(400).json({ ok: false, error: "DATE_PAST", message: "Das ausgewählte Datum liegt in der Vergangenheit." });
+    }
+    const { start: curStart, end: curEnd } = getCurrentCycleWindow(now);
+    const { end: nextEnd } = getNextCycleWindow(now);
+    // erlaubt: [curStart, nextEnd)
+    if (date < curStart || date >= nextEnd) {
+      return res.status(400).json({
+        ok: false,
+        error: "DATE_OUTSIDE_ALLOWED_CYCLES",
+        message: "Datum liegt außerhalb des erlaubten Fensters. Erlaubt sind nur Termine im aktuellen oder im nächsten Cycle.",
+        bounds: {
+          currentCycleStart: curStart.toISOString(),
+          currentCycleEnd:   curEnd.toISOString(),
+          nextCycleEnd:      nextEnd.toISOString(),
+        },
+      });
+    }
+
+    // Bosse
     let bosses = difficulty.toLowerCase() === "mythic" ? Number(req.body?.bosses ?? 0) : 8;
     if (difficulty.toLowerCase() === "mythic") {
       if (!Number.isFinite(bosses) || bosses < 1 || bosses > 8) {
-        return res.status(400).json({ ok: false, error: "INVALID_BOSSES" });
+        return res.status(400).json({ ok: false, error: "INVALID_BOSSES", message: "Die Anzahl der Bosse ist ungültig (1–8 bei Mythic)." });
       }
-    } else bosses = 8;
+    } else {
+      bosses = 8;
+    }
 
+    // Titel ggf. automatisch
     let title = normStr(req.body?.title);
     if (!title) title = buildAutoTitle({ instance, difficulty, lootType, bosses });
 
-    const payload = { title, difficulty, lootType: lootType.toLowerCase(), bosses, date, lead, presetId: req.body?.presetId ?? null };
-    const saved   = await raids.create(payload);
+    const payload = {
+      title,
+      difficulty,
+      lootType: lootType.toLowerCase(),
+      bosses,
+      date,
+      lead,
+      presetId: req.body?.presetId ?? null,
+    };
+    const saved = await raids.create(payload);
 
+    // Discord Bot sync (nicht kritisch)
     try { await discordBot.syncRaid(saved); } catch (e) { console.warn("[discord/syncRaid:create]", e?.message || e); }
 
     return res.status(201).json({ ok: true, raid: saved });
@@ -120,10 +160,12 @@ async function create(req, res) {
 async function update(req, res) {
   try {
     if (!isLeadOrAdminOrOwner(req.user)) {
-      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+      return res.status(403).json({ ok: false, error: "FORBIDDEN", message: "Keine Berechtigung diesen Raid zu bearbeiten." });
     }
     const id = Number(req.params.id);
-    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "INVALID_ID" });
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ ok: false, error: "INVALID_ID", message: "Ungültige Raid-ID." });
+    }
 
     const patch = {};
     const p = req.body || {};
@@ -136,19 +178,40 @@ async function update(req, res) {
 
     if (p.date != null) {
       const d = new Date(p.date);
-      if (Number.isNaN(d.getTime())) return res.status(400).json({ ok: false, error: "INVALID_DATE" });
+      if (Number.isNaN(d.getTime())) {
+        return res.status(400).json({ ok: false, error: "INVALID_DATE", message: "Ungültiges Datum." });
+      }
       patch.date = d;
+      // Optional: Wenn du auch bei Updates den Cycle erzwingen willst, hier einhängen:
+      // const now = new Date();
+      // const { start: curStart } = getCurrentCycleWindow(now);
+      // const { end: nextEnd } = getNextCycleWindow(now);
+      // if (d < curStart || d >= nextEnd) {
+      //   return res.status(400).json({
+      //     ok: false,
+      //     error: "DATE_OUTSIDE_ALLOWED_CYCLES",
+      //     message: "Datum liegt außerhalb des erlaubten Fensters. Erlaubt sind nur Termine im aktuellen oder im nächsten Cycle.",
+      //     bounds: {
+      //       currentCycleStart: curStart.toISOString(),
+      //       currentCycleEnd:   curEnd.toISOString(),
+      //       nextCycleEnd:      nextEnd.toISOString(),
+      //     },
+      //   });
+      // }
     }
 
     if (p.bosses != null) {
       const b = Number(p.bosses);
-      if (!Number.isFinite(b) || b < 0 || b > 8) return res.status(400).json({ ok: false, error: "INVALID_BOSSES" });
+      if (!Number.isFinite(b) || b < 0 || b > 8) {
+        return res.status(400).json({ ok: false, error: "INVALID_BOSSES", message: "Die Anzahl der Bosse ist ungültig (0–8)." });
+      }
       patch.bosses = b;
     }
 
+    // Titel neu generieren, wenn relevante Felder geändert wurden und kein Titel direkt gesetzt ist
     if (!patch.title && (patch.difficulty || patch.lootType || patch.bosses)) {
       const current = await raids.findOne(id);
-      if (!current) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
+      if (!current) return res.status(404).json({ ok: false, error: "NOT_FOUND", message: "Raid wurde nicht gefunden." });
       const merged = {
         instance: DEFAULT_INSTANCE,
         difficulty: patch.difficulty || current.difficulty,
@@ -165,7 +228,7 @@ async function update(req, res) {
     return res.json({ ok: true, raid: saved });
   } catch (e) {
     console.error("[raids/update]", e);
-    if (e?.code === "P2025") return res.status(404).json({ ok: false, error: "NOT_FOUND" });
+    if (e?.code === "P2025") return res.status(404).json({ ok: false, error: "NOT_FOUND", message: "Raid wurde nicht gefunden." });
     return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
   }
 }
@@ -174,15 +237,17 @@ async function update(req, res) {
 async function remove(req, res) {
   try {
     if (!isLeadOrAdminOrOwner(req.user)) {
-      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+      return res.status(403).json({ ok: false, error: "FORBIDDEN", message: "Keine Berechtigung diesen Raid zu löschen." });
     }
     const id = Number(req.params.id);
-    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "INVALID_ID" });
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ ok: false, error: "INVALID_ID", message: "Ungültige Raid-ID." });
+    }
     await raids.remove(id);
     return res.json({ ok: true });
   } catch (e) {
     console.error("[raids/remove]", e);
-    if (e?.code === "P2025") return res.status(404).json({ ok: false, error: "NOT_FOUND" });
+    if (e?.code === "P2025") return res.status(404).json({ ok: false, error: "NOT_FOUND", message: "Raid wurde nicht gefunden." });
     return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
   }
 }

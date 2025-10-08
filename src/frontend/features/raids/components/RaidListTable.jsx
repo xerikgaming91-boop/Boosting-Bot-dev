@@ -1,55 +1,12 @@
 // src/frontend/features/raids/components/RaidListTable.jsx
-import React, { useMemo } from "react";
+import React from "react";
 
 /**
- * Mappt r.lead (ID/String) ➜ DisplayName/Username
+ * Erwartet bereits vorformatierte Rows:
+ * { id, title, dateLabel, timeLabel, difficultyLabel, lootLabel, bossesLabel, leadLabel, detailUrl }
  */
-function formatLead(leadValue, leads = []) {
-  if (leadValue === null || leadValue === undefined || leadValue === "") return "-";
-  const s = String(leadValue);
-
-  // Finde passenden Lead in der übergebenen Leads-Liste
-  const found =
-    leads.find((u) => String(u.id) === s) ||
-    leads.find((u) => String(u.discordId) === s);
-
-  // Nimm bevorzugt den Discord DisplayName, dann username, sonst die rohe Angabe
-  return (
-    found?.displayName ||
-    found?.username ||
-    found?.globalName ||
-    found?.name ||
-    s
-  );
-}
-
-/**
- * Props:
- * - rows:  Raid[]
- * - leads: User[]   (für Anzeige des Lead-Namens)
- * - me:    Session-User (optional)
- * - onDelete(id): Promise<void> | void
- * - onlyFuture?: boolean (default false)  -> wenn true, filtert date < now (lokale Zeit)
- */
-export default function RaidListTable({
-  rows = [],
-  leads = [],
-  me = null,
-  onDelete,
-  onlyFuture = false,
-}) {
-  const now = Date.now();
-
-  const items = useMemo(() => {
-    const base = Array.isArray(rows) ? rows : [];
-    if (!onlyFuture) return base;
-    return base.filter((r) => {
-      const t = new Date(r.date).getTime();
-      return Number.isFinite(t) ? t >= now : true;
-    });
-  }, [rows, onlyFuture, now]);
-
-  if (!items.length) {
+export default function RaidListTable({ rows = [], onDelete }) {
+  if (!Array.isArray(rows) || rows.length === 0) {
     return (
       <div className="px-3 py-10 text-center text-zinc-400">
         Keine Raids gefunden.
@@ -73,52 +30,34 @@ export default function RaidListTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-800 text-sm text-zinc-200">
-          {items.map((r) => {
-            const dt = new Date(r.date);
-            const dateStr = dt.toLocaleDateString(undefined, {
-              year: "numeric",
-              month: "2-digit",
-              day: "2-digit",
-            });
-            const timeStr = dt.toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-
-            const leadText = formatLead(r.lead, leads);
-
-            return (
-              <tr key={r.id}>
-                <td className="px-4 py-3 font-medium">{r.title}</td>
-                <td className="px-4 py-3">{dateStr}</td>
-                <td className="px-4 py-3">{timeStr}</td>
-                <td className="px-4 py-3">{r.difficulty || "-"}</td>
-                <td className="px-4 py-3">{r.lootType || "-"}</td>
-                <td className="px-4 py-3">{r.bosses ?? "-"}</td>
-                <td className="px-4 py-3">{leadText}</td>
-                <td className="px-4 py-3 text-right">
-                  {typeof onDelete === "function" && (
-                    <button
-                      className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
-                      onClick={() => onDelete(r.id)}
-                    >
-                      Löschen
-                    </button>
-                  )}
-                </td>
-                 <td className="px-4 py-3 text-right">
-                  {typeof onDelete === "function" && (
-                    <button
-                      className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
-                      onClick={() => onDelete(r.id)}
-                    >
-                      Detail
-                    </button>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td className="px-4 py-3 font-medium">{r.title}</td>
+              <td className="px-4 py-3">{r.dateLabel}</td>
+              <td className="px-4 py-3">{r.timeLabel}</td>
+              <td className="px-4 py-3">{r.difficultyLabel}</td>
+              <td className="px-4 py-3">{r.lootLabel}</td>
+              <td className="px-4 py-3">{r.bossesLabel}</td>
+              <td className="px-4 py-3">{r.leadLabel}</td>
+              <td className="px-4 py-3 text-right">
+                <a
+                  href={r.detailUrl || `/raids/${r.id}`}
+                  className="mr-2 rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                  title="Details ansehen"
+                >
+                  Details
+                </a>
+                {typeof onDelete === "function" && (
+                  <button
+                    className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
+                    onClick={() => onDelete(r.id)}
+                  >
+                    Löschen
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
