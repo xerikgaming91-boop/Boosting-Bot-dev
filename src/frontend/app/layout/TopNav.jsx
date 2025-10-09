@@ -21,7 +21,7 @@ export default function TopNav() {
             BB
           </div>
           <span className="text-zinc-100 font-semibold tracking-wide">
-            Boosting Bot
+            Phoenix Boosting 
           </span>
         </div>
 
