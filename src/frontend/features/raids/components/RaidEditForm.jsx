@@ -2,12 +2,10 @@
 import React from "react";
 
 export default function RaidEditForm({
-  // rights + data
   me,
   leads = [],
   canPickLead = false,
 
-  // form state + actions
   title, setTitle,
   difficulty, setDifficulty,
   lootType, setLootType,

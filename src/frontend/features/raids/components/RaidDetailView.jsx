@@ -1,6 +1,8 @@
 // src/frontend/features/raids/components/RaidDetailView.jsx
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import RaidInlineEdit from "./RaidInlineEdit.jsx";
+
 
 function Section({ title, children, right }) {
   return (
@@ -23,16 +25,20 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
           <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-500">keine</div>
         ) : (
           items.map((s) => (
-            <div key={s.id} className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+            <div
+              key={s.id}
+              className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+            >
               <div className="min-w-0">
                 <div className="truncate text-zinc-100">{s.who}</div>
                 <div className="text-xs text-zinc-400">
-                  {s.classLabel} • {s.roleLabel}{s.note ? ` • ${s.note}` : ""}
+                  {s.classLabel} • {s.roleLabel}
+                  {s.note ? ` • ${s.note}` : ""}
                 </div>
               </div>
 
-              {canManage && (
-                picked ? (
+              {canManage &&
+                (picked ? (
                   <button
                     onClick={() => onUnpick?.(s.id)}
                     disabled={busyIds?.has(s.id)}
@@ -48,8 +54,7 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
                   >
                     Pick
                   </button>
-                )
-              )}
+                ))}
             </div>
           ))
         )}
@@ -60,26 +65,42 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
 
 /**
  * Props:
- * - raid: { title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
+ * - raid: { id, title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
  * - grouped: { saved: {tanks,heals,dps,loot}, open: {tanks,heals,dps,loot} }
  * - canManage: boolean
  * - pick(id), unpick(id)
  * - busyIds: Set<number>
  */
-export default function RaidDetailView({ raid, grouped, canManage, pick, unpick, busyIds }) {
+export default function RaidDetailView({
+  raid,
+  grouped,
+  canManage,
+  pick,
+  unpick,
+  busyIds,
+}) {
   if (!raid) {
-    return <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">Raid nicht gefunden.</div>;
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">
+        Raid nicht gefunden.
+      </div>
+    );
   }
 
-  const rosterCount = (grouped?.saved?.tanks?.length || 0)
-    + (grouped?.saved?.heals?.length || 0)
-    + (grouped?.saved?.dps?.length || 0)
-    + (grouped?.saved?.loot?.length || 0);
+  // Nur für das Bearbeiten der Raid-Stammdaten (Roster/Anmeldungen bleiben unverändert)
+  const [editing, setEditing] = useState(false);
 
-  const signupsCount = (grouped?.open?.tanks?.length || 0)
-    + (grouped?.open?.heals?.length || 0)
-    + (grouped?.open?.dps?.length || 0)
-    + (grouped?.open?.loot?.length || 0);
+  const rosterCount =
+    (grouped?.saved?.tanks?.length || 0) +
+    (grouped?.saved?.heals?.length || 0) +
+    (grouped?.saved?.dps?.length || 0) +
+    (grouped?.saved?.loot?.length || 0);
+
+  const signupsCount =
+    (grouped?.open?.tanks?.length || 0) +
+    (grouped?.open?.heals?.length || 0) +
+    (grouped?.open?.dps?.length || 0) +
+    (grouped?.open?.loot?.length || 0);
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
@@ -88,8 +109,25 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
         title={raid.title}
         right={
           <div className="flex items-center gap-2">
-            <div className="text-xs text-zinc-400">Roster: {rosterCount} • Signups: {signupsCount}</div>
-            <Link to="/raids" className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
+            <div className="text-xs text-zinc-400">
+              Roster: {rosterCount} • Signups: {signupsCount}
+            </div>
+
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setEditing((v) => !v)}
+                className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
+                title="Raid bearbeiten"
+              >
+                {editing ? "Bearbeiten schließen" : "Bearbeiten"}
+              </button>
+            )}
+
+            <Link
+              to="/raids"
+              className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+            >
               Zurück
             </Link>
           </div>
@@ -117,6 +155,21 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
             <div>{raid.leadLabel}</div>
           </div>
         </div>
+
+        {/* Inline-Edit-Panel NUR für Raid-Stammdaten (optional einblendbar) */}
+        {canManage && editing && (
+          <div className="mt-3">
+            <RaidInlineEdit
+              raid={raid}
+              onCancel={() => setEditing(false)}
+              onSaved={() => {
+                // Falls dein Detail-Hook ein refresh() bereitstellt, hier aufrufen.
+                // Beispiel: refresh();
+                setEditing(false);
+              }}
+            />
+          </div>
+        )}
       </Section>
 
       {/* Roster */}
