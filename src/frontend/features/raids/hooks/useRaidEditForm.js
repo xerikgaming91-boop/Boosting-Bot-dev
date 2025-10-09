@@ -24,6 +24,7 @@ function toInputLocal(iso) {
 function buildTitle({ base = DEFAULT_RAID_NAME, difficulty, lootType, bosses }) {
   const diff = String(difficulty || "").toUpperCase();
   const loot = String(lootType || "").toUpperCase();
+
   if (diff === "MYTHIC") {
     const b = Number.isFinite(Number(bosses)) && Number(bosses) > 0 ? ` ${bosses}/8` : "";
     return `${base} Mythic ${loot}${b}`.trim();
@@ -96,7 +97,7 @@ export default function useRaidEditForm(raidId) {
 
   useEffect(() => { load(); }, [load]);
 
-  // HC/Normal: Bosse = 8 und Loot ggf. korrigieren
+  // Regel: HC/Normal -> Bosses = 8, Loot ggf. korrigieren
   useEffect(() => {
     const diff = String(difficulty || "").toUpperCase();
     if (diff !== "MYTHIC") {
@@ -106,6 +107,7 @@ export default function useRaidEditForm(raidId) {
     }
   }, [difficulty]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-Titel
   useEffect(() => {
     if (!autoTitle) return;
     setTitle(buildTitle({ difficulty, lootType, bosses }));
@@ -144,8 +146,11 @@ export default function useRaidEditForm(raidId) {
   }
 
   return {
+    // meta
     loading, saving, error,
+    // rights + data
     me, leads, canPickLead,
+    // form state
     title, setTitle,
     difficulty, setDifficulty,
     lootType, setLootType,
@@ -155,6 +160,7 @@ export default function useRaidEditForm(raidId) {
     autoTitle, setAutoTitle,
     lootOptions,
     canSave,
+    // actions
     submit,
     regenerateTitle,
     reload: load,
