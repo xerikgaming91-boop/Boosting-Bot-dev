@@ -1,142 +1,183 @@
-// src/frontend/features/raids/components/RaidCreateForm.jsx
-import React from "react";
-import useRaidCreateForm from "../hooks/useRaidCreateForm";
+// src/frontend/features/raids/components/RaidEditForm.jsx
+import React, { useEffect, useMemo } from "react";
+import useRaidEdit from "../hooks/useRaidEdit";
 
-export default function RaidCreateForm({ me, leads = [], canPickLead = false, onCreate }) {
-  const form = useRaidCreateForm({ me, canPickLead, onCreate });
+/**
+ * RaidEditForm (Update)
+ * - Felder: Datum/Zeit, Difficulty, LootType, (Lead nur für Admin/Owner), Bosses (nur bei Mythic)
+ * - Lead-Auswahl wie in RaidCreateForm: Dropdown aus `leads` (Discord-Nutzer)
+ *
+ * Props:
+ *  - raid              (required)    : Raw-Raid (id, date/dateTime, difficulty, lootType, bosses, lead*)
+ *  - setRaid           (optional)    : Setter zum lokalen Aktualisieren
+ *  - me                (optional)    : aktueller User (für Anzeige, falls Lead nicht editierbar)
+ *  - canPickLead       (optional)    : true -> Lead-Dropdown; false -> nur Anzeige
+ *  - leads             (optional)    : Array der möglichen Raidleads (discordId/id + displayName)
+ *  - onClose           (optional)    : schließt die Form nach Speichern/Cancel
+ */
+export default function RaidEditForm({
+  raid,
+  setRaid,
+  me,
+  canPickLead = false,
+  leads = [],
+  onClose,
+}) {
+  const edit = useRaidEdit({ raid, setRaid, canEditLead: canPickLead, onUpdated: onClose });
+
+  const Field = ({ label, hint, children }) => (
+    <div className="space-y-1">
+      {label ? <label className="text-sm font-medium text-zinc-200">{label}</label> : null}
+      {children}
+      {hint ? <p className="text-xs text-zinc-400">{hint}</p> : null}
+    </div>
+  );
+
+  const isMythic = String(edit.form.difficulty || "").toLowerCase() === "mythic";
+  const leadKey = edit.form.__leadKey; // vom Hook ermittelt
+
+  // Sicherstellen: Mythic -> LootType VIP
+  useEffect(() => {
+    if (isMythic && edit.form.lootType !== "VIP") {
+      edit.set("lootType", "VIP");
+    }
+  }, [isMythic]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Anzeige-Name für den aktuellen Lead (falls canPickLead=false)
+  const currentLeadDisplay = useMemo(() => {
+    if (!leadKey) return "";
+    const value = String(edit.form[leadKey] ?? "");
+    const found = (leads || []).find(
+      (u) => String(u.discordId || u.id) === value
+    );
+    return (
+      found?.displayName ||
+      found?.username ||
+      found?.globalName ||
+      raid?.leadDisplayName ||
+      raid?.leadUsername ||
+      raid?.lead ||
+      value
+    );
+  }, [leads, raid, leadKey, edit.form]);
 
   return (
-    <form
-      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-      onSubmit={(e) => { e.preventDefault(); form.submit(); }}
-    >
-      {/* Fehleranzeige */}
-      {!!form.error && (
-        <div className="sm:col-span-2 lg:col-span-3 rounded-lg border border-rose-700 bg-rose-900/40 px-3 py-2 text-rose-200">
-          <div className="flex items-start justify-between gap-4">
-            <div className="text-sm">{form.error}</div>
-            <button
-              type="button"
-              onClick={form.clearError}
-              className="rounded bg-rose-700/40 px-2 py-1 text-xs hover:bg-rose-700/60"
-              title="Fehlermeldung schließen"
-            >
-              Schließen
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Automatisch generierter Titel (read-only Preview) */}
-      <div className="lg:col-span-3">
-        <label className="mb-1 block text-xs text-zinc-400">Titel (automatisch)</label>
-        <input
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200"
-          value={form.autoTitle}
-          readOnly
-          title="Titel wird aus Name, Difficulty, Loot und ggf. Bossfortschritt (Mythic) generiert."
-        />
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs text-zinc-400">Datum & Zeit</label>
-        <input
-          type="datetime-local"
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
-          value={form.date}
-          onChange={(e) => form.setDate(e.target.value)}
-          required
-        />
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs text-zinc-400">Difficulty</label>
-        <select
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
-          value={form.difficulty}
-          onChange={(e) => form.setDifficulty(e.target.value)}
-        >
-          <option value="HC">Heroic</option>
-          <option value="Mythic">Mythic</option>
-          <option value="Normal">Normal</option>
-        </select>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs text-zinc-400">Loot</label>
-        <select
-          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
-          value={form.lootType}
-          onChange={(e) => form.setLootType(e.target.value)}
-          disabled={form.isMythic}
-        >
-          {form.lootOptions.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Bosse: nur bei Mythic editierbar; bei HC/Normal fix 8 */}
-      <div>
-        <label className="mb-1 block text-xs text-zinc-400">Bosses</label>
-        {form.isMythic ? (
-          <input
-            type="number"
-            min={1}
-            max={8}
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
-            value={form.bosses}
-            onChange={(e) => form.setBosses(e.target.value)}
-            required
-          />
-        ) : (
-          <input
-            disabled
-            className="w-full cursor-not-allowed rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-zinc-400"
-            value={8}
-            readOnly
-            title="Bei Heroic/Normal ist die Bossanzahl fest 8."
-          />
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-zinc-100">Raid bearbeiten</h3>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+          >
+            Schließen
+          </button>
         )}
       </div>
 
-      {canPickLead ? (
-        <div>
-          <label className="mb-1 block text-xs text-zinc-400">Raidlead</label>
-          <select
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
-            value={form.lead}
-            onChange={(e) => form.setLead(e.target.value)}
-          >
-            <option value="">– auswählen –</option>
-            {leads.map((u) => {
-              const value = u.discordId || String(u.id);
-              const name = u.displayName || u.username || u.globalName || value;
-              return <option key={value} value={value}>{name}</option>;
-            })}
-          </select>
-        </div>
-      ) : (
-        <div className="opacity-60">
-          <label className="mb-1 block text-xs text-zinc-400">Raidlead</label>
-          <input
-            disabled
-            className="w-full cursor-not-allowed rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-400"
-            value={me?.displayName || me?.username || me?.discordId || me?.id || ""}
-            readOnly
-          />
+      {edit.error && (
+        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2 text-xs text-rose-200">
+          {edit.error}
         </div>
       )}
 
-      <div className="sm:col-span-2 lg:col-span-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field label="Datum & Zeit">
+          <input
+            type="datetime-local"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+            {...edit.bind("dateTime")}
+          />
+        </Field>
+
+        <Field label="Schwierigkeit">
+          <select
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+            {...edit.bind("difficulty")}
+          >
+            <option value="">— auswählen —</option>
+            <option value="Normal">Normal</option>
+            <option value="Heroic">Heroic</option>
+            <option value="Mythic">Mythic</option>
+          </select>
+        </Field>
+
+        <Field label="Loot-Type" hint={isMythic ? "Bei Mythic ist nur VIP erlaubt." : undefined}>
+          <select
+            disabled={isMythic}
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600 disabled:opacity-60"
+            {...edit.bind("lootType")}
+          >
+            <option value="Saved">Saved</option>
+            <option value="Unsaved">Unsaved</option>
+            <option value="VIP">VIP</option>
+          </select>
+        </Field>
+
+        {/* Raidlead wie bei Create-Form: Dropdown aus 'leads' */}
+        {leadKey && (
+          canPickLead ? (
+            <Field label="Raidlead">
+              <select
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
+                {...edit.bind(leadKey)}
+              >
+                <option value="">– auswählen –</option>
+                {(leads || []).map((u) => {
+                  const value = String(u.discordId || u.id);
+                  const name =
+                    u.displayName || u.username || u.globalName || value;
+                  return (
+                    <option key={value} value={value}>
+                      {name}
+                    </option>
+                  );
+                })}
+              </select>
+            </Field>
+          ) : (
+            <Field label="Raidlead">
+              <input
+                disabled
+                className="w-full cursor-not-allowed rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-400"
+                value={currentLeadDisplay || (me?.displayName || me?.username || me?.discordId || me?.id || "")}
+                readOnly
+              />
+            </Field>
+          )
+        )}
+
+        {isMythic && (
+          <Field label="Bossanzahl (Mythic)">
+            <input
+              type="number"
+              min="0"
+              className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+              placeholder="z. B. 8"
+              {...edit.bind("bosses")}
+            />
+          </Field>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2">
         <button
-          type="submit"
-          disabled={form.submitting}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+          onClick={edit.submit}
+          disabled={edit.saving || !edit.dirty}
+          className="rounded-md bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+          title={!edit.dirty ? "Keine Änderungen" : "Änderungen speichern"}
         >
-          {form.submitting ? "Erstelle …" : "Raid erstellen"}
+          {edit.saving ? "Speichere…" : "Speichern"}
+        </button>
+
+        <button
+          onClick={edit.cancel}
+          disabled={edit.saving}
+          className="rounded-md border border-zinc-700 px-4 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+        >
+          Abbrechen
         </button>
       </div>
-    </form>
+    </div>
   );
 }

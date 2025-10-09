@@ -103,6 +103,7 @@ export default function useRaidDetail(raidId) {
     return {
       id: raid.id,
       title: raid.title || "-",
+      // Server nutzt "date" – bereits ISO
       dateLabel: fmtDate(raid.date),
       diffLabel: labelDiff(raid.difficulty),
       lootLabel: labelLoot(raid.lootType),
@@ -167,5 +168,18 @@ export default function useRaidDetail(raidId) {
     }
   }
 
-  return { raid: raidView, grouped, canManage, loading, error, pick, unpick, busyIds };
+  // >>> zusätzlich raw-Entity + Setter + me zurückgeben (für Edit)
+  return {
+    raid: raidView,
+    raidEntity: raid,
+    setRaid,
+    me,
+    grouped,
+    canManage,
+    loading,
+    error,
+    pick,
+    unpick,
+    busyIds,
+  };
 }
