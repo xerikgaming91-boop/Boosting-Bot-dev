@@ -92,6 +92,7 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
             <Link to="/raids" className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
               Zurück
             </Link>
+            
           </div>
         }
       >
