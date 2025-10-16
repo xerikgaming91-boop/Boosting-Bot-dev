@@ -1,40 +1,99 @@
 // src/frontend/features/raids/hooks/useRaidDetail.js
 import { useEffect, useMemo, useState } from "react";
-import { apiListRaidSignups, apiPickSignup, apiUnpickSignup } from "../../../app/api/signupsAPI";
 
-const U = (x) => String(x || "").toUpperCase();
-const L = (x) => String(x || "").toLowerCase();
+/* ------------------------- Utils ------------------------- */
+const U = (s) => String(s || "").toUpperCase();
 
-function labelDiff(d) {
-  const v = U(d);
-  if (v === "HC") return "Heroic";
-  if (v === "NORMAL" || v === "NHC") return "Normal";
-  if (v === "MYTHIC") return "Mythic";
-  return d || "-";
-}
-function labelLoot(l) {
-  const v = L(l);
-  if (v === "vip") return "VIP";
-  if (v === "saved") return "Saved";
-  if (v === "unsaved") return "UnSaved";
-  return l || "-";
-}
 function fmtDate(iso) {
-  try { const d = new Date(iso); return isNaN(d) ? "-" : d.toLocaleString(); }
-  catch { return "-"; }
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return d.toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+function labelDiff(d) {
+  const m = { NORMAL: "Normal", HEROIC: "Heroic", MYTHIC: "Mythic", HC: "Heroic", NM: "Normal", M: "Mythic" };
+  return m[U(d)] || d || "-";
+}
+function labelLoot(v) {
+  const u = U(v);
+  if (u === "VIP") return "VIP";
+  if (u === "SAVED") return "Saved";
+  if (u === "UNSAVED") return "Unsaved";
+  return v || "-";
 }
 function preferLeadName(raid) {
-  return raid?.leadDisplayName || raid?.leadUsername || raid?.lead || "-";
+  return raid?.leadName || raid?.leadDisplay || raid?.lead || "-";
 }
 function roleKey(t) {
-  const v = L(t);
-  if (v.startsWith("tank")) return "tanks";
-  if (v.startsWith("heal")) return "heals";
-  if (v.startsWith("dps"))  return "dps";
-  if (v.startsWith("loot")) return "loot";
+  const u = U(t);
+  if (u.includes("TANK")) return "tanks";
+  if (u.includes("HEAL")) return "heals";
+  if (u.includes("LOOT")) return "loot";
   return "dps";
 }
 
+/* --------------------- Robust JSON Fetch --------------------- */
+async function fetchJSON(url, opts = {}) {
+  const res = await fetch(url, {
+    credentials: "include",
+    cache: "no-store",
+    headers: { Accept: "application/json", ...(opts.headers || {}) },
+    ...opts,
+  });
+
+  const ct = res.headers.get("content-type") || "";
+  const isJSON = ct.includes("application/json");
+
+  if (!isJSON) {
+    // HTML/Plaintext erwischt (z. B. Login-Seite oder falscher Proxy)
+    const text = await res.text().catch(() => "");
+    const preview = (text || "").slice(0, 120).replace(/\s+/g, " ");
+    throw new Error(
+      `HTTP_${res.status}: Erwartete JSON-Antwort, bekam "${ct || "unknown"}" von ${url}. ` +
+      `Vermutlich Login/Redirect oder die Anfrage landete am Frontend. Preview: ${preview}`
+    );
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    throw new Error(`HTTP_${res.status}: Ungültiges JSON von ${url}`);
+  }
+
+  if (!res.ok || (data && data.ok === false)) {
+    throw new Error(data?.error || `HTTP_${res.status}`);
+  }
+
+  return data;
+}
+
+/* ---------------------- API-Wrappers ---------------------- */
+async function apiGetRaid(raidId, signal) {
+  const j = await fetchJSON(`/api/raids/${raidId}`, { signal });
+  return j.raid;
+}
+async function apiMe(signal) {
+  const j = await fetchJSON(`/api/users/me?_=${Date.now()}`, { signal });
+  return j.user || j;
+}
+async function apiListRaidSignups(raidId, signal) {
+  const j = await fetchJSON(`/api/raids/${raidId}/signups`, { signal });
+  return j.signups || [];
+}
+async function apiPickSignup(id) {
+  await fetchJSON(`/api/signups/${id}/pick`, { method: "POST" });
+}
+async function apiUnpickSignup(id) {
+  await fetchJSON(`/api/signups/${id}/unpick`, { method: "POST" });
+}
+
+/* ---------------------- Haupt-Hook ---------------------- */
 export default function useRaidDetail(raidId) {
   const [raid, setRaid] = useState(null);
   const [signups, setSignups] = useState([]);
@@ -47,55 +106,37 @@ export default function useRaidDetail(raidId) {
     if (!raidId || Number.isNaN(raidId)) return;
     const ac = new AbortController();
 
-    async function load() {
+    (async () => {
       setLoading(true);
       setErr("");
-
       try {
-        // --- RAID ---
-        let r = await fetch(`/api/raids/${raidId}`, {
-          credentials: "include",
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        if (r.status === 304) {
-          r = await fetch(`/api/raids/${raidId}?_=${Date.now()}`, {
-            credentials: "include",
-            cache: "no-store",
-            signal: ac.signal,
-          });
-        }
-        const rj = await r.json().catch(() => ({}));
-        if (!r.ok || !rj?.ok) throw new Error(rj?.error || `HTTP_${r.status}`);
-        setRaid(rj.raid || null);
-
-        // --- ME ---
-        let m = await fetch(`/api/users/me?_=${Date.now()}`, {
-          credentials: "include",
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        const mj = await m.json().catch(() => ({}));
-        if (m.ok && mj?.ok) setMe(mj.user || null);
-
-        // --- SIGNUPS ---
-        const list = await apiListRaidSignups(raidId);
-        setSignups(Array.isArray(list) ? list : []);
+        const [raidData, meData, signupList] = await Promise.all([
+          apiGetRaid(raidId, ac.signal),
+          apiMe(ac.signal).catch(() => null), // falls /me 401 liefert
+          apiListRaidSignups(raidId, ac.signal),
+        ]);
+        setRaid(raidData || null);
+        setMe(meData);
+        setSignups(Array.isArray(signupList) ? signupList : []);
       } catch (e) {
-        if (!ac.signal.aborted) setErr(e?.message || "LOAD_FAILED");
+        if (!ac.signal.aborted) {
+          console.error("useRaidDetail load failed:", e);
+          setErr(e?.message || "LOAD_FAILED");
+        }
       } finally {
         if (!ac.signal.aborted) setLoading(false);
       }
-    }
+    })();
 
-    load();
     return () => ac.abort();
   }, [raidId]);
 
   const canManage = useMemo(() => {
     if (!raid || !me) return false;
     const isLead = String(raid.lead || "") === String(me.discordId || me.id || "");
-    return !!(me.isOwner || me.isAdmin || isLead);
+    const roles = Array.isArray(me.roles) ? me.roles.map((r) => String(r).toLowerCase()) : [];
+    const has = (x) => roles.some((r) => r.includes(x));
+    return !!(me.isOwner || me.isAdmin || has("owner") || has("admin") || isLead);
   }, [raid, me]);
 
   const raidView = useMemo(() => {
@@ -103,7 +144,6 @@ export default function useRaidDetail(raidId) {
     return {
       id: raid.id,
       title: raid.title || "-",
-      // Server nutzt "date" – bereits ISO
       dateLabel: fmtDate(raid.date),
       diffLabel: labelDiff(raid.difficulty),
       lootLabel: labelLoot(raid.lootType),
@@ -112,6 +152,17 @@ export default function useRaidDetail(raidId) {
     };
   }, [raid]);
 
+  // Warcraftlogs-Link bauen
+  function wclUrlFromChar(c) {
+    const name = c?.name;
+    const realm = c?.realm;
+    const region = String(c?.region || "eu").toLowerCase();
+    if (!name || !realm) return null;
+    return `https://www.warcraftlogs.com/character/${region}/${encodeURIComponent(
+      realm
+    )}/${encodeURIComponent(name)}`;
+  }
+
   const grouped = useMemo(() => {
     const base = () => ({ tanks: [], heals: [], dps: [], loot: [] });
     const g = { saved: base(), open: base() };
@@ -119,20 +170,29 @@ export default function useRaidDetail(raidId) {
     (signups || []).forEach((s) => {
       const k = roleKey(s.type);
       const picked = s.saved || U(s.status) === "PICKED";
+
+      const charName = s.char?.name
+        ? `${s.char.name}${s.char.realm ? "-" + s.char.realm : ""}`
+        : null;
+
       const item = {
         id: s.id,
-        who: s.char?.name
-          ? `${s.char.name}${s.char.realm ? "-" + s.char.realm : ""}`
-          : (s.displayName || s.userId || "-"),
+        who: charName || s.displayName || s.userId || "-", // Charname bevorzugen
         classLabel: s.char?.class || s.class || "",
         roleLabel: U(s.type || "-"),
         note: s.note || "",
         saved: !!picked,
         statusLabel: U(s.status || "-"),
+        ilvl: s.char?.itemLevel ?? s.char?.ilvl ?? null,
+        wcl: wclUrlFromChar(s.char),
+        realm: s.char?.realm || null,
+        nameOnly: s.char?.name || null,
       };
+
       if (picked) g.saved[k].push(item);
       else g.open[k].push(item);
     });
+
     return g;
   }, [signups]);
 
@@ -148,7 +208,11 @@ export default function useRaidDetail(raidId) {
       console.error("pick failed", e);
       setErr(e?.message || "PICK_FAILED");
     } finally {
-      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      setBusyIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
   }
 
@@ -164,22 +228,13 @@ export default function useRaidDetail(raidId) {
       console.error("unpick failed", e);
       setErr(e?.message || "UNPICK_FAILED");
     } finally {
-      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      setBusyIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
   }
 
-  // >>> zusätzlich raw-Entity + Setter + me zurückgeben (für Edit)
-  return {
-    raid: raidView,
-    raidEntity: raid,
-    setRaid,
-    me,
-    grouped,
-    canManage,
-    loading,
-    error,
-    pick,
-    unpick,
-    busyIds,
-  };
+  return { raid: raidView, grouped, canManage, loading, error, pick, unpick, busyIds };
 }

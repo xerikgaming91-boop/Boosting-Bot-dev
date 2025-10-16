@@ -1,10 +1,15 @@
-// src/frontend/features/raids/hooks/useRaidBuff.js
+// src/frontend/features/raids/hooks/useRaidBuffs.js
 import { useMemo } from "react";
 
-/* Klassen robust normalisieren */
+/* Klassenname robust normalisieren */
 function normalizeClassName(raw) {
   if (!raw) return "";
-  const s = String(raw).trim().toLowerCase();
+  // z.B. "Shaman - HEAL" -> "shaman"
+  const base = String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/\s*[-/|]\s*.*$/, ""); // alles nach " - " / "/" / "|" weg
+
   const map = {
     dh: "DEMON HUNTER",
     "demon hunter": "DEMON HUNTER",
@@ -24,10 +29,10 @@ function normalizeClassName(raw) {
     hunter: "HUNTER",
     rogue: "ROGUE",
   };
-  return map[s] || s.replace(/\b\w/g, (m) => m.toUpperCase());
+  return map[base] || base.replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
-/* Klasse aus Signup/Char-Objekt ziehen (dein VM nutzt oft classLabel) */
+/* Klasse aus Signup/Char-Objekt ziehen */
 function extractClass(obj) {
   const val =
     obj?.classLabel ??
@@ -37,17 +42,16 @@ function extractClass(obj) {
     obj?.className ??
     obj?.charClass ??
     null;
-
   return normalizeClassName(val);
 }
 
-/* Nur GEPICKTES Roster flatten – alle möglichen Key-Varianten abdecken */
+/* Nur GEPICKTES Roster flatten – verschiedene Schlüssel abdecken */
 function flattenPicked(grouped) {
   if (!grouped) return [];
   const s = grouped.saved || grouped.roster || grouped.planned || {};
   const arrs = [
     s.tanks,
-    s.healers, // <- wichtig: viele Strukturen nutzen "healers"
+    s.healers,
     s.heals,
     s.dps,
     s.lootbuddies,
@@ -56,7 +60,7 @@ function flattenPicked(grouped) {
   return arrs.flat();
 }
 
-/* Buff-Definitionen (wie in deinem Screenshot) */
+/* Buff-Definitionen – Skyfury gehört bei dir zum SHAMAN ✅ */
 const BUFFS = [
   { id: "INT",   label: "5% Intellect",           providers: ["MAGE"] },
   { id: "AP",    label: "5% Attack Power",        providers: ["WARRIOR"] },
@@ -67,14 +71,14 @@ const BUFFS = [
   { id: "VERS",  label: "3% Versatility",         providers: ["DRUID"] },          // Mark of the Wild
   { id: "DR",    label: "3.6% Damage Reduction",  providers: ["PALADIN"] },        // Devo-Effekt
   { id: "HM",    label: "Hunter's Mark",          providers: ["HUNTER"] },
-  { id: "SKY",   label: "Skyfury",                providers: ["EVOKER"] },         // Aug-Evoker
+  { id: "SKY",   label: "Skyfury",                providers: ["SHAMAN"] },         // ⬅️ fix
 ];
 
 /**
  * Zählt Buff-Provider AUSSCHLIESSLICH aus dem gepickten Roster.
- * Rückgabe immer ALLE Buffs (auch fehlende).
+ * Gibt ALLE Buffs zurück (fehlende inklusive).
  */
-export default function useRaidBuff({ grouped, roster } = {}) {
+export default function useRaidBuffs({ grouped, roster } = {}) {
   return useMemo(() => {
     const picked = Array.isArray(roster) ? roster : flattenPicked(grouped);
 
