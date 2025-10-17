@@ -9,24 +9,19 @@
 
   --panel-2: #0f1216;
   --panel-3: #0d1013;
-
-  /* Button-Palette (grünes Primary wie im Screenshot) */
-  --btn-primary: #16a34a;     /* Tailwind green-600 */
-  --btn-primary-hover: #22c55e; /* green-500 */
-  --btn-danger: #dc2626;      /* red-600 */
-  --btn-danger-hover: #ef4444; /* red-500 */
-  --btn-secondary-bg: #141a20;
-  --btn-secondary-border: #2a323b;
-  --btn-outline-border: #2f3842;
 }
 
 html,
 body,
-#root { height: 100%; }
+#root {
+  height: 100%;
+}
 
 *,
 *::before,
-*::after { box-sizing: border-box; }
+*::after {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
@@ -40,9 +35,20 @@ body {
 }
 
 /* Typography */
-h1, h2, h3, h4 { margin: 0 0 8px 0; line-height: 1.2; }
-p { margin: 0 0 10px 0; }
-ul { margin: 0; padding-left: 18px; }
+h1,
+h2,
+h3,
+h4 {
+  margin: 0 0 8px 0;
+  line-height: 1.2;
+}
+p {
+  margin: 0 0 10px 0;
+}
+ul {
+  margin: 0;
+  padding-left: 18px;
+}
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
@@ -50,12 +56,26 @@ code {
 }
 
 /* Links */
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
 
 /* Layout */
-.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
-.boot { max-width: 960px; margin: 0 auto; padding: 24px; }
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.boot {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+}
 
 /* Panels */
 .card {
@@ -65,21 +85,40 @@ a:hover { text-decoration: underline; }
   padding: 16px 18px;
   box-shadow: var(--shadow);
 }
-/* Subtle secondary card */
-.card--subtle { background: var(--panel-2); }
 
-/* Grid helpers */
-.grid { display: grid; gap: 16px; }
-.grid--auto { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+/* Subtle secondary card (optional utility) */
+.card--subtle {
+  background: var(--panel-2);
+}
+
+/* Grids */
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.grid--auto {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
 
 /* Nav */
-.nav { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.nav {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
 
 /* Muted text */
-.hint { color: var(--muted); font-size: 0.9rem; }
+.hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
 
 /* Inputs */
-.input, .select, .textarea {
+.input,
+.select,
+.textarea {
   width: 100%;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -87,98 +126,64 @@ a:hover { text-decoration: underline; }
   color: var(--text);
   outline: none;
 }
-.input, .select { height: 36px; padding: 0 10px; }
-.textarea { padding: 10px; min-height: 100px; resize: vertical; }
 
-/* =========================
-   Buttons – EINHEITLICH
-   ========================= */
+.input,
+.select {
+  height: 36px;
+  padding: 0 10px;
+}
+
+.textarea {
+  padding: 10px;
+  min-height: 100px;
+  resize: vertical;
+}
+
+/* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
 
-  height: 36px;
+  height: 34px;
   padding: 0 12px;
 
   border-radius: 8px;
-  border: 1px solid var(--btn-secondary-border);
-  background: var(--btn-secondary-bg);
+  border: 1px solid var(--border);
+  background: #141a20;
   color: var(--text);
 
   cursor: pointer;
   user-select: none;
   text-align: center;
-
-  transition: background-color .15s ease, border-color .15s ease, transform .02s ease-in;
 }
-.btn:hover { background: #161d24; }
-.btn:active { transform: translateY(1px); }
-.btn:disabled { opacity: .55; cursor: not-allowed; }
 
-/* Primary (grün) – unterstützt .btn-primary UND .btn--primary */
-.btn-primary,
+.btn:hover {
+  background: #161d24;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
 .btn--primary {
-  background: var(--btn-primary);
-  border-color: var(--btn-primary);
-  color: #fff;
+  background: #1a62d6;
+  border-color: #1a62d6;
 }
-.btn-primary:hover,
 .btn--primary:hover {
-  background: var(--btn-primary-hover);
-  border-color: var(--btn-primary-hover);
+  background: #1c6cf0;
 }
 
-/* Secondary (dunkel) – unterstützt .btn-secondary UND .btn--secondary */
-.btn-secondary,
-.btn--secondary {
-  background: var(--btn-secondary-bg);
-  border-color: var(--btn-secondary-border);
-  color: var(--text);
-}
-.btn-secondary:hover,
-.btn--secondary:hover { background: #1a222a; }
-
-/* Outline – unterstützt .btn-outline UND .btn--outline */
-.btn-outline,
-.btn--outline {
-  background: transparent;
-  color: var(--text);
-  border-color: var(--btn-outline-border);
-}
-.btn-outline:hover,
-.btn--outline:hover { background: rgba(255,255,255,0.03); }
-
-/* Ghost – unterstützt .btn-ghost UND .btn--ghost */
-.btn-ghost,
-.btn--ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text);
-}
-.btn-ghost:hover,
-.btn--ghost:hover { background: rgba(255,255,255,0.03); }
-
-/* Danger (rot) – unterstützt .btn-danger UND .btn--danger */
-.btn-danger,
 .btn--danger {
-  background: var(--btn-danger);
-  border-color: var(--btn-danger);
-  color: #fff;
+  background: #7a1f2a;
+  border-color: #7a1f2a;
 }
-.btn-danger:hover,
 .btn--danger:hover {
-  background: var(--btn-danger-hover);
-  border-color: var(--btn-danger-hover);
+  background: #8a2430;
 }
 
-/* Größen */
-.btn-sm, .btn--sm { height: 30px; padding: 0 10px; font-size: 12px; }
-.btn-lg, .btn--lg { height: 42px; padding: 0 16px; font-size: 15px; }
-.btn-icon, .btn--icon { width: 36px; height: 36px; padding: 0; }
-
-/* Tables */
+/* Tables (falls später benötigt) */
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -187,11 +192,20 @@ a:hover { text-decoration: underline; }
   border-radius: 10px;
   border: 1px solid var(--border);
 }
-.table th, .table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
-.table thead th { background: var(--panel-2); text-align: left; }
-.table tbody tr:nth-child(odd) td { background: var(--panel-3); }
+.table th,
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.table thead th {
+  background: var(--panel-2);
+  text-align: left;
+}
+.table tbody tr:nth-child(odd) td {
+  background: var(--panel-3);
+}
 
-/* Spacing utils */
+/* Utility spacing */
 .mt-0 { margin-top: 0; }
 .mt-4 { margin-top: 4px; }
 .mt-8 { margin-top: 8px; }

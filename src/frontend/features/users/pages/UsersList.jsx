@@ -1,108 +1,43 @@
-// src/frontend/features/users/pages/UsersList.jsx
+// src/frontend/features/users/pages/Users.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { apiListUsers, apiUpdateUserRoles } from "../../../app/api/usersAPI.js";
+import { useAuth } from "../../../app/providers/AuthProvider.jsx";
+// Falls du deine API-Clients unter app/api liegen hast, passt dieser Import:
+import {
+  apiListUsers,
+  apiUpdateUserRoles,
+} from "../../../app/api/usersAPI.js"; // <— ggf. anpassen, falls dein Pfad anders ist
 
-function isAdminOwner(user) {
-  if (!user) return false;
-  const flag = user.isOwner || user.owner || user.isAdmin || user.admin;
-  const roles = Array.isArray(user.roles) ? user.roles.map(String) : [];
-  const has = (n) => roles.some((r) => String(r).toLowerCase().includes(n));
-  return Boolean(flag || has("owner") || has("admin"));
+function Badge({ children }) {
+  return (
+    <span className="inline-flex items-center rounded bg-zinc-700/60 px-2 py-0.5 text-[11px] font-medium text-zinc-200 ring-1 ring-inset ring-zinc-700/60">
+      {children}
+    </span>
+  );
 }
 
-/**
- * GUARD-WRAPPER: lädt /api/users/me robust und gated auf Admin/Owner.
- * Keine weiteren Hooks hier – nur Guards und dann Content mounten.
- */
-export default function UsersList() {
-  const [me, setMe] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-
-  useEffect(() => {
-    let ignore = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/users/me", {
-          credentials: "include",
-          headers: { Accept: "application/json" },
-          cache: "no-store",
-        });
-        const ct = res.headers.get("content-type") || "";
-        if (!res.ok || !ct.includes("application/json")) {
-          if (!ignore) setMe(null);
-          return;
-        }
-        const data = await res.json().catch(() => null);
-        const user = data?.user ?? data ?? null;
-        const valid = user && (user.id != null || user.discordId != null || user.username != null);
-        if (!ignore) setMe(valid ? user : null);
-      } catch {
-        if (!ignore) setMe(null);
-      } finally {
-        if (!ignore) setAuthLoading(false);
-      }
-    })();
-    return () => { ignore = true; };
-  }, []);
-
-  if (authLoading) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/70 p-6 text-zinc-300">Lade …</div>
-      </div>
-    );
-  }
-  if (!me) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <h1 className="mb-6 text-2xl font-semibold tracking-tight text-zinc-100">Users</h1>
-        <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/70 p-6 text-zinc-300">
-          Bitte einloggen, um diese Seite zu nutzen.
-        </div>
-      </div>
-    );
-  }
-  if (!isAdminOwner(me)) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <h1 className="mb-6 text-2xl font-semibold tracking-tight text-zinc-100">Users</h1>
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-amber-200">
-          Kein Zugriff. Diese Seite ist nur für Admin/Owner.
-        </div>
-      </div>
-    );
-  }
-
-  // ✅ Berechtigt → Inhalte mounten (alle weiteren Hooks dort)
-  return <UsersListContent me={me} />;
-}
-
-/**
- * EIGENTLICHE SEITE – alle weiteren Hooks hier drin.
- * Diese Komponente wird nur gerendert, wenn der Guard passt.
- */
-function UsersListContent({ me }) {
+export default function Users() {
+  const { isLead } = useAuth();
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [rows, setRows] = useState([]);
 
-  // Debounce für Suche
+  // Debounce Search
   const [needle, setNeedle] = useState("");
   useEffect(() => {
     const t = setTimeout(() => setNeedle(q.trim()), 300);
     return () => clearTimeout(t);
   }, [q]);
 
-  // Laden
   const load = async () => {
-    if (!me) return;
     setBusy(true);
     setErr("");
     try {
       const list = await apiListUsers(needle);
+      // kleine Normalisierung
       const normalized = (list || []).map((u) => ({
         ...u,
+        // Working copy für toggles
         $isOwner: !!u.isOwner,
         $isAdmin: !!u.isAdmin,
         $isRaidlead: !!u.isRaidlead,
@@ -116,9 +51,11 @@ function UsersListContent({ me }) {
       setBusy(false);
     }
   };
+
   useEffect(() => {
-    load(); // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needle, me]);
+    if (isLead) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needle, isLead]);
 
   const onToggle = (idx, key) => {
     setRows((prev) => {
@@ -126,7 +63,7 @@ function UsersListContent({ me }) {
       const row = { ...copy[idx] };
       row[key] = !row[key];
       row.$dirty = true;
-      // Owner impliziert Admin + Raidlead
+      // Konsistenz: Owner impliziert Admin & Raidlead zur Anzeige (freiwillig)
       if (key === "$isOwner" && row[key]) {
         row.$isAdmin = true;
         row.$isRaidlead = true;
@@ -137,7 +74,11 @@ function UsersListContent({ me }) {
   };
 
   const saveRow = async (idx) => {
-    setRows((prev) => { const c = [...prev]; c[idx].$saving = true; return c; });
+    setRows((prev) => {
+      const copy = [...prev];
+      copy[idx].$saving = true;
+      return copy;
+    });
     setErr("");
     try {
       const r = rows[idx];
@@ -145,15 +86,32 @@ function UsersListContent({ me }) {
         isOwner: r.$isOwner,
         isAdmin: r.$isAdmin,
         isRaidlead: r.$isRaidlead,
+        // rolesCsv optional: wir lassen Backend Meta berechnen
       });
+      // nach Save als Quelle der Wahrheit neu ziehen
       await load();
     } catch (e) {
       setErr(e?.message || "Speichern fehlgeschlagen");
-      setRows((prev) => { const c = [...prev]; c[idx].$saving = false; return c; });
+      setRows((prev) => {
+        const copy = [...prev];
+        copy[idx].$saving = false;
+        return copy;
+      });
     }
   };
 
   const anyDirty = useMemo(() => rows.some((r) => r.$dirty && !r.$saving), [rows]);
+
+  if (!isLead) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold text-white mb-2">Users</h1>
+        <p className="text-sm text-zinc-300">
+          Nur für <code>raidlead</code>, <code>admin</code> oder <code>owner</code>.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -164,9 +122,13 @@ function UsersListContent({ me }) {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Suche (Name, Username, Discord-ID)…"
-            className="w-64 rounded-md bg-zinc-800/70 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-400 ring-1 ring-inset ring-zinc-700 focus:outline-none"
+            className="w-64 rounded-md bg-zinc-800/70 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-400 ring-1 ring-inset ring-zinc-700 focus:outline-none focus:ring-indigo-500"
           />
-          <button onClick={load} disabled={busy} className="btn btn-secondary">
+          <button
+            onClick={load}
+            disabled={busy}
+            className="rounded bg-zinc-700/70 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-700 disabled:opacity-50"
+          >
             Aktualisieren
           </button>
         </div>
@@ -235,13 +197,18 @@ function UsersListContent({ me }) {
                       />
                       Owner
                     </label>
+
+                    {/* Anzeige highestRole */}
+                    <div className="ml-2">
+                      <Badge>{u.highestRole || "user"}</Badge>
+                    </div>
                   </div>
                 </td>
                 <td className="px-3 py-2 align-middle">
                   <button
                     onClick={() => saveRow(idx)}
                     disabled={!u.$dirty || u.$saving}
-                    className="btn btn-primary"
+                    className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
                   >
                     Speichern
                   </button>
