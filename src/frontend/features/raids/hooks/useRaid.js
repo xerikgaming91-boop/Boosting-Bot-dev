@@ -50,11 +50,9 @@ function normalizeRaid(raw) {
 function deepExtractId(any) {
   if (any == null) return null;
 
-  // direkte Felder
   const direct = any?.raid?.id ?? any?.raidId ?? any?.id ?? any?._id ?? null;
   if (direct != null) return Number(direct);
 
-  // rekursiv nach /raids/123 und id/raidId suchen
   const scan = (obj) => {
     if (obj == null) return null;
     if (typeof obj === "string") {
@@ -83,42 +81,37 @@ async function apiListRaids() {
 }
 
 async function apiCreateRaid(payload) {
-  console.groupCollapsed("%c[createRaid] POST /api/raids", "color:#8ab4f8");
-  console.debug("payload:", payload);
-
   const { res, data } = await fetchJSON("/api/raids", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
-  // alles loggen, was der Server liefert
+  // --- DEBUG sichtbar machen (nicht debug/verbose, sondern log) ---
   try {
-    console.debug("status:", res.status);
-    console.debug("headers:", Object.fromEntries(res.headers.entries()));
-    console.debug("json:", data);
-  } finally {
-    console.groupEnd();
+    const headersObj = Object.fromEntries(res.headers.entries());
+    window.__BB_LAST_CREATE__ = { payload, status: res.status, headers: headersObj, json: data };
+    console.log("[createRaid] status:", res.status);
+    console.log("[createRaid] headers:", headersObj);
+    console.log("[createRaid] json:", data);
+    console.log("[createRaid] payload:", payload);
+  } catch {
+    /* ignore */
   }
 
-  // direkter Raid?
   const direct = (data && typeof data === "object" && data.raid) ? data.raid : data;
   let raid =
     direct && typeof direct === "object" && (direct.id || direct.raidId || direct.date)
       ? direct
       : null;
 
-  // ID aus Body
   let id = deepExtractId(data);
-
-  // Location-Header (z.B. /api/raids/29 oder /raids/29)
   if (!id) {
     const loc = res.headers.get("location");
     const m = loc && /\/raids\/(\d+)/i.exec(String(loc));
     if (m) id = Number(m[1]);
   }
 
-  // Wenn wir nur eine ID haben → später Detail ggf. nachladen (macht der Caller nicht zwingend)
   return normalizeRaid(raid || (id != null ? { id } : null));
 }
 
@@ -181,15 +174,11 @@ export function useRaidBootstrap() {
     refreshAll();
   }, [refreshAll]);
 
-  // -------- CREATE mit harter Diagnose & DIFF-Fallback --------
   const createRaid = useCallback(
     async (payload) => {
-      // Ids vor dem Anlegen merken
       const beforeIds = new Set((raids || []).map((r) => Number(r.id)));
-
       const created = await apiCreateRaid(payload);
 
-      // 1) direkte ID / direktes Raidobjekt
       if (created && created.id != null) {
         const raid = normalizeRaid(created);
         setRaids((prev) => {
@@ -202,11 +191,9 @@ export function useRaidBootstrap() {
 
       console.warn("[createRaid] keine ID in Create-Response – starte Fallback…");
 
-      // 2) Liste laden und Differenz zur vorherigen Liste bestimmen
       const list = await apiListRaids();
       const diff = (list || []).filter((r) => !beforeIds.has(Number(r.id)));
 
-      // a) wenn genau 1 neu ist → das ist der eben erstellte
       if (diff.length === 1) {
         const picked = normalizeRaid(diff[0]);
         setRaids((prev) => {
@@ -217,7 +204,6 @@ export function useRaidBootstrap() {
         return { ok: true, raid: picked, id: picked.id };
       }
 
-      // b) sonst nach Titel + Zeitfenster matchen (±10 min)
       const targetTime = new Date(payload?.date || Date.now()).getTime();
       const THRESH = 10 * 60 * 1000;
       const candidates = (list || []).filter((r) => {
@@ -235,8 +221,7 @@ export function useRaidBootstrap() {
         return { ok: true, raid: best, id: best.id };
       }
 
-      // c) gar keine neue ID gefunden → harter Fehler mit Debug-Hinweisen
-      console.error("[createRaid] Fallbacks erschöpft. Siehe Network-Tab und die [createRaid]-Logs.");
+      console.error("[createRaid] Fallbacks erschöpft. Siehe window.__BB_LAST_CREATE__ und Network-Tab.");
       throw new Error("Raid-ID fehlt.");
     },
     [raids]
@@ -279,12 +264,10 @@ export function useRaidBootstrap() {
     updateRaid,
     deleteRaid,
 
-    // Seiten-Guards regelst du bereits pro View
     canCreateRaid: true,
     canPickLead: true,
     canViewRaids: true,
   };
 }
 
-// optionaler Default-Export (falls woanders als default importiert)
 export default useRaidBootstrap;
