@@ -1,7 +1,6 @@
-// src/frontend/features/raids/hooks/useRaid.js
 import { useCallback, useEffect, useState } from "react";
 
-/* --------------------- fetch + JSON + Preview --------------------- */
+/* ---------------- utils ---------------- */
 function isJsonResponse(res) {
   const ct = res.headers.get("content-type") || "";
   return ct.includes("application/json");
@@ -28,7 +27,6 @@ async function fetchJSON(url, opts = {}) {
     err.body = txt;
     throw err;
   }
-
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data?.ok === false) {
     const err = new Error(data?.error || data?.message || `HTTP_${res.status}`);
@@ -39,20 +37,38 @@ async function fetchJSON(url, opts = {}) {
   return { res, data };
 }
 
-/* --------------------- Normalisierung + ID-Scan --------------------- */
+const normDiff = (d) => {
+  const v = String(d || "").toLowerCase();
+  if (v.startsWith("myth")) return "Mythic";
+  if (v.startsWith("hc") || v.startsWith("hero")) return "HC";
+  return "Normal";
+};
+const normLoot = (t) => {
+  const v = String(t || "").toLowerCase();
+  if (v === "vip") return "vip";
+  if (v === "saved") return "saved";
+  if (v === "unsaved") return "unsaved";
+  return v;
+};
+const sameLead = (a, b) => String(a ?? "").trim() === String(b ?? "").trim();
+
 function normalizeRaid(raw) {
   if (!raw || typeof raw !== "object") return raw;
   const id = raw.id ?? raw.raidId ?? raw._id ?? null;
   const date = raw.date ?? raw.dateTime ?? raw.datetime ?? raw.when ?? null;
-  return { ...raw, id: id != null ? Number(id) : id, date };
+  return {
+    ...raw,
+    id: id != null ? Number(id) : id,
+    date,
+    difficulty: normDiff(raw.difficulty),
+    lootType: normLoot(raw.lootType),
+  };
 }
 
 function deepExtractId(any) {
   if (any == null) return null;
-
   const direct = any?.raid?.id ?? any?.raidId ?? any?.id ?? any?._id ?? null;
   if (direct != null) return Number(direct);
-
   const scan = (obj) => {
     if (obj == null) return null;
     if (typeof obj === "string") {
@@ -73,9 +89,9 @@ function deepExtractId(any) {
   return scan(any);
 }
 
-/* ----------------------------- API ----------------------------- */
+/* ---------------- API ---------------- */
 async function apiListRaids() {
-  const { data } = await fetchJSON("/api/raids");
+  const { data } = await fetchJSON("/api/raids?_=" + Date.now());
   const list = Array.isArray(data?.raids) ? data.raids : Array.isArray(data) ? data : [];
   return list.map(normalizeRaid);
 }
@@ -87,17 +103,17 @@ async function apiCreateRaid(payload) {
     body: JSON.stringify(payload),
   });
 
-  // --- DEBUG sichtbar machen (nicht debug/verbose, sondern log) ---
   try {
-    const headersObj = Object.fromEntries(res.headers.entries());
-    window.__BB_LAST_CREATE__ = { payload, status: res.status, headers: headersObj, json: data };
+    window.__BB_CREATE_TRACE__ = {
+      step: "post",
+      payload,
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      json: data,
+    };
     console.log("[createRaid] status:", res.status);
-    console.log("[createRaid] headers:", headersObj);
     console.log("[createRaid] json:", data);
-    console.log("[createRaid] payload:", payload);
-  } catch {
-    /* ignore */
-  }
+  } catch {}
 
   const direct = (data && typeof data === "object" && data.raid) ? data.raid : data;
   let raid =
@@ -115,7 +131,33 @@ async function apiCreateRaid(payload) {
   return normalizeRaid(raid || (id != null ? { id } : null));
 }
 
-/* ----------------------------- Hook ----------------------------- */
+/* -------------- Heuristik-Matching (Fallback) -------------- */
+function scoreCandidate(payload, candidate) {
+  const when = new Date(payload.date).getTime();
+  const ctime = new Date(candidate.date || 0).getTime();
+  const dt = Math.abs(ctime - when); // ms
+  const within = dt <= 45 * 60 * 1000; // 45 Minuten Fenster
+  if (!within) return -1;
+
+  let score = 0;
+  // näher in der Zeit = höher
+  score += Math.max(0, 10000000 - dt); // große Basis, damit Zeit priorisiert
+
+  if (sameLead(candidate.lead, payload.lead)) score += 5000;
+  if (normDiff(candidate.difficulty) === normDiff(payload.difficulty)) score += 3000;
+  if (normLoot(candidate.lootType) === normLoot(payload.lootType)) score += 2000;
+  if (Number(candidate.bosses || 0) === Number(payload.bosses || 0)) score += 1000;
+
+  // Bonus wenn Titel dieselbe Klasse Wörter enthält (z.B. Heroic/HC, VIP)
+  const ct = String(candidate.title || "").toLowerCase();
+  const pt = String(payload.title || "").toLowerCase();
+  const words = ["vip", "saved", "unsaved", "heroic", "hc", "mythic", "normal"];
+  for (const w of words) {
+    if (ct.includes(w) && pt.includes(w)) score += 200;
+  }
+  return score;
+}
+
 function sortRaids(a, b) {
   const da = new Date(a.date || 0).getTime();
   const db = new Date(b.date || 0).getTime();
@@ -123,6 +165,7 @@ function sortRaids(a, b) {
   return Number(a.id || 0) - Number(b.id || 0);
 }
 
+/* ---------------- Hook ---------------- */
 export function useRaidBootstrap() {
   const [me, setMe] = useState(null);
   const [leads, setLeads] = useState([]);
@@ -179,6 +222,7 @@ export function useRaidBootstrap() {
       const beforeIds = new Set((raids || []).map((r) => Number(r.id)));
       const created = await apiCreateRaid(payload);
 
+      // ID vorhanden → easy
       if (created && created.id != null) {
         const raid = normalizeRaid(created);
         setRaids((prev) => {
@@ -189,13 +233,31 @@ export function useRaidBootstrap() {
         return { ok: true, raid, id: raid.id };
       }
 
-      console.warn("[createRaid] keine ID in Create-Response – starte Fallback…");
+      console.warn("[createRaid] Keine ID in Create-Response – starte Heuristik…");
 
+      // Liste laden & besten Kandidaten ermitteln
       const list = await apiListRaids();
-      const diff = (list || []).filter((r) => !beforeIds.has(Number(r.id)));
+      const candidates = list
+        .filter((r) => !beforeIds.has(Number(r.id))) // neu seit vor dem POST
+        .map((r) => ({ r, s: scoreCandidate(payload, r) }))
+        .filter((x) => x.s >= 0)
+        .sort((a, b) => b.s - a.s);
 
-      if (diff.length === 1) {
-        const picked = normalizeRaid(diff[0]);
+      try {
+        window.__BB_CREATE_TRACE__ = {
+          ...(window.__BB_CREATE_TRACE__ || {}),
+          step: "fallback",
+          payload,
+          beforeCount: beforeIds.size,
+          listCount: list.length,
+          top5: candidates.slice(0, 5),
+        };
+        console.log("[createRaid] fallback candidates (top5):", candidates.slice(0, 5));
+      } catch {}
+
+      const best = candidates[0]?.r;
+      if (best?.id != null) {
+        const picked = normalizeRaid(best);
         setRaids((prev) => {
           const arr = Array.isArray(prev) ? prev.slice() : [];
           if (!arr.some((x) => Number(x.id) === Number(picked.id))) arr.push(picked);
@@ -204,24 +266,7 @@ export function useRaidBootstrap() {
         return { ok: true, raid: picked, id: picked.id };
       }
 
-      const targetTime = new Date(payload?.date || Date.now()).getTime();
-      const THRESH = 10 * 60 * 1000;
-      const candidates = (list || []).filter((r) => {
-        const sameTitle = String(r.title || "") === String(payload?.title || "");
-        const dt = Math.abs(new Date(r.date || 0).getTime() - targetTime);
-        return sameTitle && dt <= THRESH;
-      });
-      if (candidates.length) {
-        const best = candidates.sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
-        setRaids((prev) => {
-          const arr = Array.isArray(prev) ? prev.slice() : [];
-          if (!arr.some((x) => Number(x.id) === Number(best.id))) arr.push(best);
-          return arr.sort(sortRaids);
-        });
-        return { ok: true, raid: best, id: best.id };
-      }
-
-      console.error("[createRaid] Fallbacks erschöpft. Siehe window.__BB_LAST_CREATE__ und Network-Tab.");
+      console.error("[createRaid] Fallbacks erschöpft. Siehe window.__BB_CREATE_TRACE__ / Network.");
       throw new Error("Raid-ID fehlt.");
     },
     [raids]
