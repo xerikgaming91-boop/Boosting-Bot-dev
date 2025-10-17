@@ -1,87 +1,164 @@
 // src/frontend/app/api/raidsAPI.js
-// Frontend-HTTP Wrapper für Raids-Endpunkte
 
-const API_BASE = import.meta?.env?.VITE_API_BASE || "";
+function isJson(res) {
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("application/json");
+}
+function htmlPreview(text = "", n = 140) {
+  return String(text).slice(0, n).replace(/\s+/g, " ");
+}
+function normalizeRaid(raw) {
+  if (!raw || typeof raw !== "object") return raw;
+  const id =
+    raw.id ??
+    raw.raidId ??
+    raw._id ??
+    (typeof raw === "number" ? raw : null);
 
-/** interner Fetch-Helper mit Credentials und Cache-Bust + strukturierte Fehler */
-async function http(path, opts = {}) {
-  const method = (opts.method || "GET").toUpperCase();
+  // vereinheitliche Datumsschlüssel
+  const date = raw.date ?? raw.dateTime ?? raw.datetime ?? raw.when ?? null;
 
-  // Cache-Bust nur für GET
-  let url = `${API_BASE}/api${path}`;
-  if (method === "GET") {
-    const sep = url.includes("?") ? "&" : "?";
-    url = `${url}${sep}_=${Date.now()}`;
-  }
+  return {
+    ...raw,
+    id: id != null ? Number(id) : id,
+    date,
+  };
+}
 
+async function request(method, url, body) {
   const res = await fetch(url, {
+    method,
     credentials: "include",
-    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-      ...(opts.headers || {}),
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
     },
-    ...opts,
+    body: body ? JSON.stringify(body) : undefined,
   });
 
-  // 304 kann im Dev über Proxy passieren – wie "ok ohne Body" behandeln
-  if (res.status === 304) {
-    return {};
-  }
+  if (res.status === 204) return { res, data: null };
 
-  const ct = res.headers.get("content-type") || "";
-  const isJson = ct.includes("application/json");
-  const body = isJson ? await res.json().catch(() => ({})) : null;
-
-  if (!res.ok) {
-    // Backend sendet z.B. { ok:false, error, message, bounds? }
-    const msg = body?.message || body?.error || `${res.status} ${res.statusText}`;
+  if (!isJson(res)) {
+    // Hilfreicher Fehler statt stilles HTML (SPA-Fallback/Redirect)
+    const text = await res.text().catch(() => "");
+    const msg = `Erwartete JSON, bekam "${res.headers.get("content-type") ||
+      "unknown"}" von ${url}. Preview: ${htmlPreview(text)}`;
     const err = new Error(msg);
     err.status = res.status;
-    err.body = body;
+    err.body = text;
     throw err;
   }
-  return body || {};
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data?.message || data?.error || `HTTP_${res.status}`);
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+  return { res, data };
 }
 
-/** Liste aller Raids – Backend liefert { ok, raids } */
+// --- Helpers --------------------------------------------------------------
+
+function pickIdFrom(any) {
+  const id =
+    any?.raid?.id ??
+    any?.id ??
+    any?.raidId ??
+    any?._id ??
+    null;
+  return id != null ? Number(id) : null;
+}
+
+function pickRaidFrom(any) {
+  if (!any) return null;
+  if (typeof any === "object" && any.raid && typeof any.raid === "object") {
+    return any.raid;
+  }
+  if (typeof any === "object" && (any.id || any.raidId || any.date || any.difficulty)) {
+    return any;
+  }
+  return null;
+}
+
+async function readRaidFromLocation(res) {
+  const loc = res.headers.get("location");
+  const id = loc && /\/raids\/(\d+)/i.exec(String(loc))?.[1];
+  if (!id) return null;
+  return await apiGetRaid(Number(id));
+}
+
+// --- API ------------------------------------------------------------------
+
 export async function apiListRaids() {
-  const data = await http(`/raids`, { method: "GET" });
-  return Array.isArray(data?.raids) ? data.raids : [];
+  const { data } = await request("GET", "/api/raids");
+  // Akzeptiere sowohl { ok, raids } als auch blanke Liste
+  const list = Array.isArray(data?.raids) ? data.raids : Array.isArray(data) ? data : [];
+  return list.map(normalizeRaid);
 }
 
-/** Einzelner Raid – Backend liefert { ok, raid } */
-export async function apiGetRaidById(id) {
-  if (!id && id !== 0) throw new Error("id_required");
-  const data = await http(`/raids/${id}`, { method: "GET" });
-  return data?.raid || null;
+export async function apiGetRaid(id) {
+  const { data } = await request("GET", `/api/raids/${id}`);
+  const raid = pickRaidFrom(data) || {};
+  if (!pickIdFrom(raid)) {
+    // manche Endpunkte schicken { ok:true, id, ... } ohne nested 'raid'
+    const withId = { ...raid, id: pickIdFrom(data) };
+    if (!withId.id) throw new Error("Raid-ID fehlt.");
+    return normalizeRaid(withId);
+  }
+  return normalizeRaid(raid);
 }
 
-/** Raid anlegen – Backend liefert { ok, raid } */
 export async function apiCreateRaid(payload) {
-  const data = await http(`/raids`, {
-    method: "POST",
-    body: JSON.stringify(payload ?? {}),
-  });
-  return data?.raid || null;
+  const { res, data } = await request("POST", "/api/raids", payload);
+
+  // 1) Versuche, direkt ein Raid-Objekt zu lesen
+  const direct = pickRaidFrom(data);
+  if (direct) {
+    const raid = normalizeRaid(direct);
+    if (!raid?.id) {
+      const id = pickIdFrom(data);
+      if (id) raid.id = id;
+    }
+    if (!raid?.id) throw new Error("Raid-ID fehlt.");
+    return raid;
+  }
+
+  // 2) ID aus JSON
+  const id = pickIdFrom(data);
+  if (id) {
+    return await apiGetRaid(id);
+  }
+
+  // 3) ggf. Location-Header auswerten
+  const fromLoc = await readRaidFromLocation(res);
+  if (fromLoc?.id) return normalizeRaid(fromLoc);
+
+  throw new Error("Raid-ID fehlt.");
 }
 
-/** Raid bearbeiten – Backend liefert { ok, raid } */
 export async function apiUpdateRaid(id, patch) {
-  if (!id && id !== 0) throw new Error("id_required");
-  const data = await http(`/raids/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(patch ?? {}),
-  });
-  return data?.raid || null;
+  // Akzeptiere PATCH/PUT, je nach Server
+  try {
+    const { data } = await request("PATCH", `/api/raids/${id}`, patch);
+    const raid = pickRaidFrom(data) || {};
+    const ensured = normalizeRaid({ ...raid, id: pickIdFrom(data) ?? id });
+    return ensured;
+  } catch (e) {
+    // fallback: nach erfolgreichem 204 o.ä. Details nachladen
+    if (e?.status === 405 || e?.status === 404) {
+      const { data } = await request("PUT", `/api/raids/${id}`, patch);
+      const raid = pickRaidFrom(data) || {};
+      const ensured = normalizeRaid({ ...raid, id: pickIdFrom(data) ?? id });
+      return ensured;
+    }
+    throw e;
+  }
 }
 
-/** Raid löschen – Backend liefert { ok:true } */
 export async function apiDeleteRaid(id) {
-  if (!id && id !== 0) throw new Error("id_required");
-  const data = await http(`/raids/${id}`, { method: "DELETE" });
-  // kompatibel zu deiner bisherigen Nutzung (boolean)
-  return data?.ok ?? true;
+  await request("DELETE", `/api/raids/${id}`);
+  return { ok: true };
 }

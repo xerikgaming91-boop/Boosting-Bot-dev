@@ -1,6 +1,7 @@
 // src/frontend/features/raids/hooks/useRaidCreateForm.js
 import { useEffect, useMemo, useState } from "react";
 
+<<<<<<< Updated upstream
 /** Extrahiert die neue Raid-ID aus der Serverantwort (mehrere Varianten unterstützt). */
 function extractRaidId(res, data) {
   // 1) Häufige JSON-Varianten
@@ -56,6 +57,18 @@ async function fetchJSON(url, opts = {}) {
 
   const data = await res.json().catch(() => ({}));
   return { res, data };
+=======
+function labelDifficulty(d) {
+  if (d === "HC") return "HC";
+  if (d === "Mythic") return "Mythic";
+  return "Normal";
+}
+function labelLoot(t) {
+  if (t === "vip") return "VIP";
+  if (t === "saved") return "Saved";
+  if (t === "unsaved") return "Unsaved";
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
+>>>>>>> Stashed changes
 }
 
 /**
@@ -74,8 +87,17 @@ export default function useRaidCreateForm(initialValues = {}) {
     ...initialValues,
   }));
 
+<<<<<<< Updated upstream
   const [leads, setLeads] = useState([]);
   const [saving, setSaving] = useState(false);
+=======
+  const [difficulty, setDifficulty] = useState("HC");
+  const [lootType, setLootType] = useState("vip");
+  const [date, setDate] = useState("");
+  const [bosses, setBosses] = useState(8);
+  const [lead, setLead] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+>>>>>>> Stashed changes
   const [error, setError] = useState("");
 
   // Dropdown für Raidlead wie auf /raids: aus Discord-Server
@@ -110,12 +132,28 @@ export default function useRaidCreateForm(initialValues = {}) {
     return ["SAVED", "UNSAVED", "VIP"];
   }, [values.difficulty]);
 
+<<<<<<< Updated upstream
   function setValue(key, val) {
     setValues(v => ({ ...v, [key]: val }));
+=======
+  const autoTitle = useMemo(() => {
+    const diff = labelDifficulty(difficulty);
+    const loot = labelLoot(lootType);
+    if (isMythic) {
+      const b = Math.max(1, Number(bosses) || 1);
+      return `${DEFAULT_RAID_NAME} ${diff} ${loot} ${b}/8`;
+    }
+    return `${DEFAULT_RAID_NAME} ${diff} ${loot}`;
+  }, [DEFAULT_RAID_NAME, difficulty, lootType, bosses, isMythic]);
+
+  function clearError() {
+    setError("");
+>>>>>>> Stashed changes
   }
 
   /** Absenden: erstellt Raid und gibt { ok, id } zurück. */
   async function submit() {
+<<<<<<< Updated upstream
     setSaving(true);
     setError("");
 
@@ -138,6 +176,37 @@ export default function useRaidCreateForm(initialValues = {}) {
       }
 
       return { ok: true, id: newId, data };
+=======
+    if (submitting) return;
+    setSubmitting(true);
+    setError("");
+
+    try {
+      if (typeof onCreate !== "function") throw new Error("onCreate ist nicht definiert.");
+
+      const when = date ? new Date(date) : new Date();
+      const payload = {
+        title: autoTitle,
+        difficulty: difficulty || "HC",
+        lootType: lootType || "vip",
+        date: when.toISOString(),
+        bosses: isMythic ? Number(bosses) || 8 : 8,
+        lead: canPickLead ? (lead || null) : (me?.discordId ?? me?.id ?? null),
+      };
+
+      const res = await onCreate(payload);
+
+      // Res darf sein: {ok:true, raid}, {raid}, {ok:true,id}, reines Raidobjekt
+      const id =
+        res?.raid?.id ?? res?.id ?? res?.raidId ?? res?.data?.id ?? res?.data?.raidId ?? null;
+
+      if (!id) {
+        const preview = JSON.stringify(res || {}, null, 0).slice(0, 160);
+        throw new Error(`Raid-ID fehlt. Response: ${preview}`);
+      }
+
+      return { ok: true, id: Number(id), raid: res.raid ?? res };
+>>>>>>> Stashed changes
     } catch (e) {
       setError(e?.message || "CREATE_FAILED");
       return { ok: false, error: e?.message || "CREATE_FAILED" };
@@ -147,12 +216,28 @@ export default function useRaidCreateForm(initialValues = {}) {
   }
 
   return {
+<<<<<<< Updated upstream
     values,
     setValue,
     leads,
     lootOptions,
     saving,
     error,
+=======
+    difficulty, setDifficulty,
+    lootType,   setLootType,
+    date,       setDate,
+    bosses,     setBosses,
+    lead,       setLead,
+
+    isMythic,
+    lootOptions,
+    autoTitle,
+
+    submitting,
+    error,
+    clearError,
+>>>>>>> Stashed changes
     submit,
   };
 }
