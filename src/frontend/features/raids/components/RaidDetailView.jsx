@@ -20,38 +20,14 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
       <div className="mb-2 text-xs font-medium text-zinc-400">{title}</div>
       <div className="space-y-2">
         {items.length === 0 ? (
-          <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-500">
-            keine
-          </div>
+          <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-500">keine</div>
         ) : (
           items.map((s) => (
-            <div
-              key={s.id}
-              className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2"
-            >
+            <div key={s.id} className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
               <div className="min-w-0">
-                {/* Zeile 1: Char-Name (nicht Discord) */}
-                <div className="truncate text-zinc-100">
-                  {s.who /* wird im Hook bereits aus char.name[-realm] gebaut */}
-                </div>
-
-                {/* Zeile 2: Klasse • Rolle • iLvl • WCL */}
-                <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-zinc-400">
-                  <span>{s.classLabel || "–"}</span>
-                  <span>• {s.roleLabel || "–"}</span>
-                  <span>• iLvl: {s.ilvl ?? "–"}</span>
-                  {s.wcl && (
-                    <a
-                      href={s.wcl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline-offset-2 hover:underline"
-                      title="Warcraftlogs"
-                    >
-                      • Warcraftlogs
-                    </a>
-                  )}
-                  {s.note ? <span>• {s.note}</span> : null}
+                <div className="truncate text-zinc-100">{s.who}</div>
+                <div className="text-xs text-zinc-400">
+                  {s.classLabel} • {s.roleLabel}{s.note ? ` • ${s.note}` : ""}
                 </div>
               </div>
 
@@ -83,33 +59,42 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
 }
 
 /**
+ * Rein präsentational. Keine Hooks, kein Fetch, keine Business-Logik.
+ *
  * Props:
- * - raid: { title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
- * - grouped: { saved: {tanks,heals,dps,loot}, open: {tanks,heals,dps,loot} }
- * - canManage: boolean
- * - pick(id), unpick(id)
- * - busyIds: Set<number>
+ * - raid: View-Model (Titel/Labels)
+ * - grouped: { saved:{tanks,heals,dps,loot}, open:{tanks,heals,dps,loot} }
+ * - canManage, pick(id), unpick(id), busyIds
+ * - canShowEdit: boolean -> Button anzeigen
+ * - editOpen: boolean
+ * - onToggleEdit(): void
+ * - editNode: ReactNode -> wird unter dem Header gerendert (Form etc.)
  */
-export default function RaidDetailView({ raid, grouped, canManage, pick, unpick, busyIds }) {
+export default function RaidDetailView({
+  raid,
+  grouped,
+  canManage,
+  pick,
+  unpick,
+  busyIds,
+  canShowEdit = false,
+  editOpen = false,
+  onToggleEdit,
+  editNode,
+}) {
   if (!raid) {
-    return (
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">
-        Raid nicht gefunden.
-      </div>
-    );
+    return <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">Raid nicht gefunden.</div>;
   }
 
-  const rosterCount =
-    (grouped?.saved?.tanks?.length || 0) +
-    (grouped?.saved?.heals?.length || 0) +
-    (grouped?.saved?.dps?.length || 0) +
-    (grouped?.saved?.loot?.length || 0);
+  const rosterCount = (grouped?.saved?.tanks?.length || 0)
+    + (grouped?.saved?.heals?.length || 0)
+    + (grouped?.saved?.dps?.length || 0)
+    + (grouped?.saved?.loot?.length || 0);
 
-  const signupsCount =
-    (grouped?.open?.tanks?.length || 0) +
-    (grouped?.open?.heals?.length || 0) +
-    (grouped?.open?.dps?.length || 0) +
-    (grouped?.open?.loot?.length || 0);
+  const signupsCount = (grouped?.open?.tanks?.length || 0)
+    + (grouped?.open?.heals?.length || 0)
+    + (grouped?.open?.dps?.length || 0)
+    + (grouped?.open?.loot?.length || 0);
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
@@ -118,13 +103,19 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
         title={raid.title}
         right={
           <div className="flex items-center gap-2">
-            <div className="text-xs text-zinc-400">
-              Roster: {rosterCount} • Signups: {signupsCount}
-            </div>
-            <Link
-              to="/raids"
-              className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-            >
+            <div className="text-xs text-zinc-400">Roster: {rosterCount} • Signups: {signupsCount}</div>
+
+            {canShowEdit && (
+              <button
+                onClick={onToggleEdit}
+                className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                title={editOpen ? "Editor schließen" : "Raid bearbeiten"}
+              >
+                {editOpen ? "Editor schließen" : "Bearbeiten"}
+              </button>
+            )}
+
+            <Link to="/raids" className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
               Zurück
             </Link>
           </div>
@@ -154,75 +145,26 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
         </div>
       </Section>
 
-      {/* Roster (geplant) */}
+      {/* Edit-Node (vom Container geliefert) */}
+      {editOpen && editNode}
+
+      {/* Roster */}
       <Section title="Roster (geplant)">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Column
-            title="🛡️ Tanks"
-            items={grouped?.saved?.tanks || []}
-            picked
-            canManage={canManage}
-            onUnpick={unpick}
-            busyIds={busyIds}
-          />
-          <Column
-            title="💚 Healers"
-            items={grouped?.saved?.heals || []}
-            picked
-            canManage={canManage}
-            onUnpick={unpick}
-            busyIds={busyIds}
-          />
-          <Column
-            title="🗡️ DPS"
-            items={grouped?.saved?.dps || []}
-            picked
-            canManage={canManage}
-            onUnpick={unpick}
-            busyIds={busyIds}
-          />
-          <Column
-            title="🍀 Lootbuddies"
-            items={grouped?.saved?.loot || []}
-            picked
-            canManage={canManage}
-            onUnpick={unpick}
-            busyIds={busyIds}
-          />
+          <Column title="🛡️ Tanks"   items={grouped?.saved?.tanks || []} picked canManage={canManage} onUnpick={unpick} busyIds={busyIds} />
+          <Column title="💚 Healers"  items={grouped?.saved?.heals || []} picked canManage={canManage} onUnpick={unpick} busyIds={busyIds} />
+          <Column title="🗡️ DPS"     items={grouped?.saved?.dps || []}   picked canManage={canManage} onUnpick={unpick} busyIds={busyIds} />
+          <Column title="🍀 Lootbuddies" items={grouped?.saved?.loot || []} picked canManage={canManage} onUnpick={unpick} busyIds={busyIds} />
         </div>
       </Section>
 
-      {/* Signups (offen) */}
+      {/* Signups offen */}
       <Section title="Signups (offen)">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Column
-            title="🛡️ Tanks"
-            items={grouped?.open?.tanks || []}
-            canManage={canManage}
-            onPick={pick}
-            busyIds={busyIds}
-          />
-          <Column
-            title="💚 Healers"
-            items={grouped?.open?.heals || []}
-            canManage={canManage}
-            onPick={pick}
-            busyIds={busyIds}
-          />
-          <Column
-            title="🗡️ DPS"
-            items={grouped?.open?.dps || []}
-            canManage={canManage}
-            onPick={pick}
-            busyIds={busyIds}
-          />
-          <Column
-            title="🍀 Lootbuddies"
-            items={grouped?.open?.loot || []}
-            canManage={canManage}
-            onPick={pick}
-            busyIds={busyIds}
-          />
+          <Column title="🛡️ Tanks"   items={grouped?.open?.tanks || []}  canManage={canManage} onPick={pick} busyIds={busyIds} />
+          <Column title="💚 Healers"  items={grouped?.open?.heals || []}  canManage={canManage} onPick={pick} busyIds={busyIds} />
+          <Column title="🗡️ DPS"     items={grouped?.open?.dps || []}    canManage={canManage} onPick={pick} busyIds={busyIds} />
+          <Column title="🍀 Lootbuddies" items={grouped?.open?.loot || []}  canManage={canManage} onPick={pick} busyIds={busyIds} />
         </div>
       </Section>
     </div>
