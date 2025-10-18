@@ -1,7 +1,10 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 import { useMemo, useState } from "react";
 =======
+=======
+>>>>>>> parent of 6ed4743 (Edit form fixed)
 =======
 >>>>>>> parent of 6ed4743 (Edit form fixed)
 // src/frontend/features/raids/components/RaidCreateForm.jsx
@@ -10,6 +13,7 @@ import useRaidCreateForm from "../hooks/useRaidCreateForm";
 
 export default function RaidCreateForm({ me, leads = [], canPickLead = false, onCreate }) {
   const form = useRaidCreateForm({ me, canPickLead, onCreate });
+<<<<<<< HEAD
 <<<<<<< HEAD
 >>>>>>> parent of 6ed4743 (Edit form fixed)
 
@@ -144,6 +148,10 @@ export default function RaidCreateForm({ me, leads, canPickLead, onCreate }) {
 
   return (
 >>>>>>> parent of 6ed4743 (Edit form fixed)
+=======
+
+  return (
+>>>>>>> parent of 6ed4743 (Edit form fixed)
     <form
       className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
       onSubmit={(e) => { e.preventDefault(); form.submit(); }}
@@ -211,6 +219,9 @@ export default function RaidCreateForm({ me, leads, canPickLead, onCreate }) {
           {form.lootOptions.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
 <<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> parent of 6ed4743 (Edit form fixed)
+=======
 >>>>>>> parent of 6ed4743 (Edit form fixed)
 =======
 >>>>>>> parent of 6ed4743 (Edit form fixed)
@@ -220,10 +231,13 @@ export default function RaidCreateForm({ me, leads, canPickLead, onCreate }) {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
       <div className="col-span-1 md:col-span-2 flex gap-2 mt-2">
         <button type="submit" className="btn btn-primary">Speichern</button>
         <button type="button" className="btn">Abbrechen</button>
 =======
+=======
+>>>>>>> parent of 6ed4743 (Edit form fixed)
 =======
 >>>>>>> parent of 6ed4743 (Edit form fixed)
       {/* Bosse: nur bei Mythic editierbar; bei HC/Normal fix 8 */}
