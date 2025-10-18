@@ -1,220 +1,225 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// src/frontend/features/raids/hooks/useRaidDetail.js
+import { useEffect, useMemo, useState } from "react";
+import { apiGetRaidById } from "@app/api/raidsAPI";
+import {
+  apiListRaidSignups,
+  apiPickSignup,
+  apiUnpickSignup,
+} from "@app/api/signupsAPI";
+import { apiGetMe } from "@app/api/usersAPI";
 
-/** ---- JSON-Helper (GET) ------------------------------------------------- */
-async function fetchJSON(url, opts = {}) {
-  const res = await fetch(url, {
-    credentials: "include",
-    headers: { Accept: "application/json", ...(opts.headers || {}) },
-    ...opts,
-  });
-  const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("application/json")) {
-    const preview = await res.text().catch(() => "");
-    throw new Error(`HTTP_${res.status}: expected JSON, got ${ct}. ${preview.slice(0, 160)}`);
+// ---------- Helpers: Labels & Mapping ----------
+const U = (x) => String(x ?? "").toUpperCase();
+const L = (x) => String(x ?? "").toLowerCase();
+
+function labelDiff(d) {
+  const v = U(d);
+  if (v === "HC") return "Heroic";
+  if (v === "NORMAL" || v === "NHC") return "Normal";
+  if (v === "MYTHIC") return "Mythic";
+  return d || "-";
+}
+function labelLoot(l) {
+  const v = L(l);
+  if (v === "vip") return "VIP";
+  if (v === "saved") return "Saved";
+  if (v === "unsaved") return "UnSaved";
+  return l || "-";
+}
+function fmtDate(iso) {
+  try {
+    const d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d)) return "-";
+    return d.toLocaleString();
+  } catch {
+    return "-";
   }
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.message || data?.error || `HTTP_${res.status}`);
-  return data;
+}
+function roleKey(type) {
+  const v = L(type);
+  if (v.startsWith("tank")) return "tanks";
+  if (v.startsWith("heal")) return "heals";
+  if (v.startsWith("dps")) return "dps";
+  if (v.startsWith("loot")) return "loot";
+  return "dps";
 }
 
-/** ---- Try-first-JSON (für Mutationen mit alternativen Endpoints) -------- */
-async function tryJsonEndpoints(endpoints) {
-  let lastErr;
-  for (const ep of endpoints) {
-    try {
-      const res = await fetch(ep.url, {
-        credentials: "include",
-        method: ep.method || "POST",
-        headers: {
-          Accept: "application/json",
-          ...(ep.body ? { "Content-Type": "application/json" } : {}),
-          ...(ep.headers || {}),
-        },
-        body: ep.body ? JSON.stringify(ep.body) : undefined,
-      });
-
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("application/json")) {
-        // falscher Server (meist Vite index.html) → nächste Route probieren
-        lastErr = new Error(`HTTP_${res.status}: got ${ct}`);
-        continue;
-      }
-
-      const json = await res.json();
-      if (!res.ok) {
-        lastErr = new Error(json?.message || json?.error || `HTTP_${res.status}`);
-        continue;
-      }
-      return json; // Erfolg
-    } catch (e) {
-      lastErr = e;
-      // nächste Route probieren
-    }
-  }
-  throw lastErr || new Error("No endpoint matched");
-}
-
-/** ---- IDs & Merge defensiv ---------------------------------------------- */
-function idOf(x) {
-  return (
-    x?.id ??
-    x?.signupId ??
-    x?.signup_id ??
-    x?.characterSignupId ??
-    x?._id ??
-    null
-  );
-}
-function mergeSignup(prev, next) {
-  if (String(idOf(prev)) !== String(idOf(next))) return prev;
-  return { ...prev, ...next };
-}
-
-/** ======================================================================== */
-export default function useRaidDetail(raidId) {
-  const [raid, setRaid] = useState(null);
-  const [signups, setSignups] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [mutating, setMutating] = useState(false);
-  const [error, setError] = useState(null);
-  const abortRef = useRef(null);
-
-  const load = useCallback(async () => {
-    if (!raidId) return;
-    abortRef.current?.abort?.();
-    const ac = new AbortController();
-    abortRef.current = ac;
-    setLoading(true);
-    setError(null);
-    try {
-      const [raidRes, signupsRes] = await Promise.all([
-        fetchJSON(`/api/raids/${raidId}`, { signal: ac.signal }),
-        fetchJSON(`/api/raids/${raidId}/signups`, { signal: ac.signal }),
-      ]);
-      setRaid(raidRes?.raid ?? raidRes);
-      const list = Array.isArray(signupsRes?.signups) ? signupsRes.signups : (signupsRes ?? []);
-      setSignups(Array.isArray(list) ? list : []);
-    } catch (e) {
-      if (e.name !== "AbortError") setError(e);
-    } finally {
-      if (!ac.signal.aborted) setLoading(false);
-    }
-  }, [raidId]);
-
-  useEffect(() => {
-    load();
-    return () => abortRef.current?.abort?.();
-  }, [load]);
-
-  const picked = useMemo(() => signups.filter((s) => !!s?.picked), [signups]);
-  const waiting = useMemo(() => signups.filter((s) => !s?.picked), [signups]);
-
-  const applyLocalUpdate = useCallback((updated) => {
-    const sid = idOf(updated);
-    if (!sid) return;
-    setSignups((prev) =>
-      prev.map((s) => (String(idOf(s)) === String(sid) ? mergeSignup(s, updated) : s))
-    );
-  }, []);
-
-  const toggleLocalPickedById = useCallback((signupId, nextPicked) => {
-    setSignups((prev) =>
-      prev.map((s) => (String(idOf(s)) === String(signupId) ? { ...s, picked: !!nextPicked } : s))
-    );
-  }, []);
-
-  /** ---- Pick / Unpick mit Endpoint-Fallbacks ---------------------------- */
-  const pick = useCallback(
-    async (signupId) => {
-      if (!raidId || !signupId) return;
-      setMutating(true);
-      setError(null);
-
-      // Optimistisches Update (sofort im Roster)
-      toggleLocalPickedById(signupId, true);
-
-      try {
-        // Probiere gängige Serverrouten (nur die, die in deinem Projekt vorkommen).
-        const resp = await tryJsonEndpoints([
-          // häufige Variante: POST mit Body
-          { url: `/api/raids/${raidId}/pick`, method: "POST", body: { signupId } },
-          // alternative REST-Formen:
-          { url: `/api/raids/${raidId}/signups/${signupId}/pick`, method: "POST" },
-          { url: `/api/raids/${raidId}/signups/${signupId}`, method: "PUT", body: { picked: true } },
-          { url: `/api/signups/${signupId}/pick`, method: "POST" },
-        ]);
-
-        const updated =
-          resp?.signup ??
-          resp?.data ??
-          (Array.isArray(resp?.signups) ? resp.signups.find((s) => String(idOf(s)) === String(signupId)) : null) ??
-          null;
-
-        if (updated && typeof updated.picked === "boolean") {
-          applyLocalUpdate(updated);
-        }
-      } catch (e) {
-        // Rollback bei Fehler
-        toggleLocalPickedById(signupId, false);
-        setError(e);
-      } finally {
-        // Revalidate hält alles konsistent
-        await load();
-        setMutating(false);
-      }
-    },
-    [raidId, load, applyLocalUpdate, toggleLocalPickedById]
-  );
-
-  const unpick = useCallback(
-    async (signupId) => {
-      if (!raidId || !signupId) return;
-      setMutating(true);
-      setError(null);
-
-      // Optimistisch rausnehmen
-      toggleLocalPickedById(signupId, false);
-
-      try {
-        const resp = await tryJsonEndpoints([
-          { url: `/api/raids/${raidId}/unpick`, method: "POST", body: { signupId } },
-          { url: `/api/raids/${raidId}/signups/${signupId}/unpick`, method: "POST" },
-          { url: `/api/raids/${raidId}/signups/${signupId}`, method: "PUT", body: { picked: false } },
-          { url: `/api/signups/${signupId}/unpick`, method: "POST" },
-        ]);
-
-        const updated =
-          resp?.signup ??
-          resp?.data ??
-          (Array.isArray(resp?.signups) ? resp.signups.find((s) => String(idOf(s)) === String(signupId)) : null) ??
-          null;
-
-        if (updated && typeof updated.picked === "boolean") {
-          applyLocalUpdate(updated);
-        }
-      } catch (e) {
-        // Rollback
-        toggleLocalPickedById(signupId, true);
-        setError(e);
-      } finally {
-        await load();
-        setMutating(false);
-      }
-    },
-    [raidId, load, applyLocalUpdate, toggleLocalPickedById]
-  );
+function toViewRaid(raid) {
+  if (!raid) return null;
+  const leadLabel =
+    raid.leadDisplayName ||
+    raid.leadUsername ||
+    raid.leadName ||
+    raid.lead ||
+    "-";
 
   return {
-    raid,
-    signups,
-    picked,
-    waiting,
+    id: raid.id,
+    title: raid.title || "-",
+    dateLabel: fmtDate(raid.date),
+    diffLabel: labelDiff(raid.difficulty),
+    lootLabel: labelLoot(raid.lootType),
+    bosses: Number.isFinite(Number(raid.bosses)) ? raid.bosses : "-",
+    leadLabel,
+  };
+}
+
+// ---- Signups: tolerant auf API-Formate ----
+// Erlaubt:
+//  - Array<Signup>
+//  - { picked: [], pending: [] }
+//  - { ok:true, picked:[], pending:[] } / { ok:true, signups:[] }
+function normalizeSignupsPayload(payload) {
+  if (!payload) return { picked: [], pending: [] };
+
+  // { ok, picked, pending }
+  if (Array.isArray(payload.picked) || Array.isArray(payload.pending)) {
+    return {
+      picked: payload.picked || [],
+      pending: payload.pending || [],
+    };
+  }
+
+  // { ok, signups: [] } oder direkt []
+  const list = Array.isArray(payload.signups)
+    ? payload.signups
+    : Array.isArray(payload)
+    ? payload
+    : [];
+
+  // Wenn keine Status-Info: alles pending
+  return { picked: [], pending: list };
+}
+
+function groupForView(signups) {
+  const base = () => ({ tanks: [], heals: [], dps: [], loot: [] });
+  const grouped = { saved: base(), open: base() };
+
+  const pushItem = (bucket, s) => {
+    const rk = roleKey(s.type || s.role || s.class || "dps");
+    const label =
+      s.char?.name
+        ? `${s.char.name}${s.char.realm ? "-" + s.char.realm : ""}`
+        : s.displayName || s.userId || "-";
+    bucket[rk].push({
+      id: s.id,
+      who: label,
+      classLabel: s.char?.class || s.class || "",
+      roleLabel: U(s.type || s.role || s.class || "-"),
+      note: s.note || "",
+    });
+  };
+
+  (signups.picked || []).forEach((s) => pushItem(grouped.saved, s));
+  (signups.pending || []).forEach((s) => pushItem(grouped.open, s));
+  return grouped;
+}
+
+// ---------- Hook ----------
+export default function useRaidDetail(raidId) {
+  const [raid, setRaid] = useState(null);        // VIEW-Form
+  const [grouped, setGrouped] = useState(null);  // { saved:{...}, open:{...} }
+  const [me, setMe] = useState(null);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setErr] = useState("");
+  const [busyIds, setBusyIds] = useState(() => new Set());
+
+  // load
+  useEffect(() => {
+    if (!raidId) return;
+    let aborted = false;
+
+    async function load() {
+      setLoading(true);
+      setErr("");
+      try {
+        const [raidRaw, meRes, signupsRaw] = await Promise.all([
+          apiGetRaidById(raidId),
+          apiGetMe().catch(() => ({ user: null })),
+          apiListRaidSignups(raidId),
+        ]);
+
+        if (aborted) return;
+
+        // Raid → View
+        setRaid(toViewRaid(raidRaw?.raid || raidRaw));
+
+        // Me
+        setMe(meRes?.user || null);
+
+        // Signups normalisieren
+        const norm = normalizeSignupsPayload(signupsRaw);
+        setGrouped(groupForView(norm));
+      } catch (e) {
+        if (!aborted) setErr(e?.message || "LOAD_FAILED");
+      } finally {
+        if (!aborted) setLoading(false);
+      }
+    }
+
+    load();
+    return () => { aborted = true; };
+  }, [raidId]);
+
+  // permissions (Owner/Admin/Raidlead==lead)
+  const canManage = useMemo(() => {
+    if (!raid || !me) return false;
+    const rl = me?.roleLevel ?? 0;
+    const isOwner = !!me?.isOwner || rl >= 3;
+    const isAdmin = !!me?.isAdmin || rl >= 2;
+    const isLead =
+      (me?.isRaidlead || rl >= 1) &&
+      String(me.discordId || me.id || "") === String((raid && raid.lead) || "");
+    return isOwner || isAdmin || isLead;
+  }, [raid, me]);
+
+  // Mutations
+  async function pick(id) {
+    if (!id || !canManage) return;
+    setBusyIds((s) => new Set(s).add(id));
+    try {
+      await apiPickSignup(id);
+      // nur Signups neu laden
+      const list = normalizeSignupsPayload(await apiListRaidSignups(raidId));
+      setGrouped(groupForView(list));
+    } catch (e) {
+      setErr(e?.message || "PICK_FAILED");
+    } finally {
+      setBusyIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
+    }
+  }
+
+  async function unpick(id) {
+    if (!id || !canManage) return;
+    setBusyIds((s) => new Set(s).add(id));
+    try {
+      await apiUnpickSignup(id);
+      const list = normalizeSignupsPayload(await apiListRaidSignups(raidId));
+      setGrouped(groupForView(list));
+    } catch (e) {
+      setErr(e?.message || "UNPICK_FAILED");
+    } finally {
+      setBusyIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
+    }
+  }
+
+  return {
+    raid,          // { title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
+    grouped,       // { saved:{tanks,heals,dps,loot}, open:{...} }
+    canManage,
     loading,
-    mutating,
     error,
-    refresh: load,
     pick,
     unpick,
-    setSignups,
+    busyIds,
   };
 }
