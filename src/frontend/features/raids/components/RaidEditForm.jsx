@@ -1,68 +1,34 @@
 // src/frontend/features/raids/components/RaidEditForm.jsx
-import React, { useEffect, useMemo } from "react";
+import React from "react";
 import useRaidEdit from "../hooks/useRaidEdit";
+import useRaidDetail from "../hooks/useRaidDetail";
 
-/**
- * RaidEditForm (Update)
- * - Felder: Datum/Zeit, Difficulty, LootType, Raidlead (Dropdown), Bosses (nur Mythic)
- * - Lead-Dropdown analog RaidCreateForm.jsx
- */
-export default function RaidEditForm({
-  raid,
-  setRaid,
-  me,
-  canPickLead = false,
-  leads = [],
-  onClose,
-}) {
-  const edit = useRaidEdit({ raid, setRaid, canEditLead: canPickLead, onUpdated: onClose });
+export default function RaidEditForm({ raid: raidProp, setRaid: setRaidProp, onClose }) {
+  const detail = useRaidDetail();
+  const raid = raidProp ?? detail.raid ?? null;
+  const setRaid = setRaidProp ?? detail.setRaid ?? (() => {});
+  const close = onClose ?? detail.stopEdit ?? (() => {});
+
+  const edit = useRaidEdit({ raid, setRaid, onUpdated: close });
 
   const Field = ({ label, hint, children }) => (
     <div className="space-y-1">
-      {label ? <label className="text-sm font-medium text-zinc-200">{label}</label> : null}
+      {label ? <label className="text-sm font-medium">{label}</label> : null}
       {children}
-      {hint ? <p className="text-xs text-zinc-400">{hint}</p> : null}
+      {hint ? <p className="text-xs opacity-60">{hint}</p> : null}
     </div>
   );
-
-  const isMythic = String(edit.form.difficulty || "").toLowerCase() === "mythic";
-  const leadKey = edit.form.__leadKey; // vom Hook ermittelt
-
-  // Mythic => LootType immer VIP
-  useEffect(() => {
-    if (isMythic && edit.form.lootType !== "VIP") {
-      edit.set("lootType", "VIP");
-    }
-  }, [isMythic]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Label für aktuellen Lead (falls read-only)
-  const currentLeadDisplay = useMemo(() => {
-    if (!leadKey) return "";
-    const value = String(edit.form[leadKey] ?? "");
-    const found = (leads || []).find((u) => String(u.discordId || u.id) === value);
-    return (
-      found?.displayName ||
-      found?.username ||
-      found?.globalName ||
-      raid?.leadDisplayName ||
-      raid?.leadUsername ||
-      raid?.lead ||
-      value
-    );
-  }, [leads, raid, leadKey, edit.form]);
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-100">Raid bearbeiten</h3>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-          >
-            Schließen
-          </button>
-        )}
+        <h3 className="text-sm font-semibold text-zinc-200">Raid bearbeiten</h3>
+        <button
+          onClick={close}
+          className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+        >
+          Schließen
+        </button>
       </div>
 
       {edit.error && (
@@ -72,11 +38,29 @@ export default function RaidEditForm({
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field label="Titel">
+          <input
+            type="text"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+            placeholder="Raid-Titel"
+            {...edit.bind("title")}
+          />
+        </Field>
+
         <Field label="Datum & Zeit">
           <input
             type="datetime-local"
             className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
             {...edit.bind("dateTime")}
+          />
+        </Field>
+
+        <Field label="Instanz">
+          <input
+            type="text"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+            placeholder="z. B. Nerub-ar Palace"
+            {...edit.bind("instance")}
           />
         </Field>
 
@@ -87,69 +71,86 @@ export default function RaidEditForm({
           >
             <option value="">— auswählen —</option>
             <option value="Normal">Normal</option>
-            <option value="Heroic">Heroic</option>
-            <option value="Mythic">Mythic</option>
+            <option value="Heroic">Heroisch</option>
+            <option value="Mythic">Mythisch</option>
           </select>
         </Field>
 
-        <Field label="Loot-Type" hint={isMythic ? "Bei Mythic ist nur VIP erlaubt." : undefined}>
+        <Field label="Loot-Typ">
           <select
-            disabled={isMythic}
-            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600 disabled:opacity-60"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
             {...edit.bind("lootType")}
           >
-            <option value="Saved">Saved</option>
-            <option value="Unsaved">Unsaved</option>
+            <option value="">— auswählen —</option>
+            <option value="PL">Personal Loot</option>
+            <option value="ML">Master Loot</option>
             <option value="VIP">VIP</option>
           </select>
         </Field>
 
-        {/* Raidlead wie in der Create-Form: Dropdown aus 'leads' */}
-        {leadKey && (
-          canPickLead ? (
-            <Field label="Raidlead">
-              <select
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
-                {...edit.bind(leadKey)}
-              >
-                <option value="">– auswählen –</option>
-                {(leads || []).map((u) => {
-                  const value = String(u.discordId || u.id);
-                  const name = u.displayName || u.username || u.globalName || value;
-                  return (
-                    <option key={value} value={value}>
-                      {name}
-                    </option>
-                  );
-                })}
-              </select>
-            </Field>
-          ) : (
-            <Field label="Raidlead">
-              <input
-                disabled
-                className="w-full cursor-not-allowed rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-400"
-                value={currentLeadDisplay}
-                readOnly
-              />
-            </Field>
-          )
-        )}
+        <Field label="Fraktion">
+          <select
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+            {...edit.bind("faction")}
+          >
+            <option value="">— auswählen —</option>
+            <option value="Horde">Horde</option>
+            <option value="Alliance">Allianz</option>
+          </select>
+        </Field>
 
-        {isMythic && (
-          <Field label="Bossanzahl (Mythic)">
-            <input
-              type="number"
-              min="0"
+        <Field label="Max. Spieler">
+          <input
+            type="number"
+            min="1"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+            placeholder="z. B. 20"
+            {...edit.bind("maxPlayers")}
+          />
+        </Field>
+
+        <Field label="Voice-Channel ID" hint="Optional: fester Voice-Channel">
+          <input
+            type="text"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+            placeholder="123456789012345678"
+            {...edit.bind("voiceChannelId")}
+          />
+        </Field>
+
+        <Field label="Text-Channel ID" hint="Optional: Ankündigungs-/Roster-Channel">
+          <input
+            type="text"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+            placeholder="123456789012345678"
+            {...edit.bind("textChannelId")}
+          />
+        </Field>
+
+        <div className="md:col-span-2">
+          <Field label="Beschreibung">
+            <textarea
+              rows={4}
               className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
-              placeholder="z. B. 8"
-              {...edit.bind("bosses")}
+              placeholder="Kurze Beschreibung, Hinweise …"
+              {...edit.bind("description")}
             />
           </Field>
-        )}
+        </div>
+
+        <div className="md:col-span-2">
+          <Field label="Notizen (intern)">
+            <textarea
+              rows={3}
+              className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
+              placeholder="Interne Notizen …"
+              {...edit.bind("notes")}
+            />
+          </Field>
+        </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={edit.submit}
           disabled={edit.saving || !edit.dirty}
@@ -166,6 +167,10 @@ export default function RaidEditForm({
         >
           Abbrechen
         </button>
+
+        {edit.dirty && !edit.saving && (
+          <span className="text-xs text-zinc-400">Nicht gespeicherte Änderungen</span>
+        )}
       </div>
     </div>
   );

@@ -35,7 +35,7 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
                 picked ? (
                   <button
                     onClick={() => onUnpick?.(s.id)}
-                    disabled={busyIds?.has?.(s.id)}
+                    disabled={busyIds?.has(s.id)}
                     className="rounded-md bg-rose-600 px-3 py-1 text-xs font-medium text-white hover:bg-rose-500 disabled:opacity-50"
                   >
                     Unpick
@@ -43,7 +43,7 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
                 ) : (
                   <button
                     onClick={() => onPick?.(s.id)}
-                    disabled={busyIds?.has?.(s.id)}
+                    disabled={busyIds?.has(s.id)}
                     className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
                   >
                     Pick
@@ -59,29 +59,14 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
 }
 
 /**
- * Rein präsentational. Keine Hooks, kein Fetch, keine Business-Logik.
- *
  * Props:
- * - raid: View-Model (Titel/Labels)
- * - grouped: { saved:{tanks,heals,dps,loot}, open:{tanks,heals,dps,loot} }
- * - canManage, pick(id), unpick(id), busyIds
- * - canShowEdit: boolean -> Button anzeigen
- * - editOpen: boolean
- * - onToggleEdit(): void
- * - editNode: ReactNode -> wird unter dem Header gerendert (Form etc.)
+ * - raid: { title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
+ * - grouped: { saved: {tanks,heals,dps,loot}, open: {tanks,heals,dps,loot} }
+ * - canManage: boolean
+ * - pick(id), unpick(id)
+ * - busyIds: Set<number>
  */
-export default function RaidDetailView({
-  raid,
-  grouped,
-  canManage,
-  pick,
-  unpick,
-  busyIds,
-  canShowEdit = false,
-  editOpen = false,
-  onToggleEdit,
-  editNode,
-}) {
+export default function RaidDetailView({ raid, grouped, canManage, pick, unpick, busyIds }) {
   if (!raid) {
     return <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">Raid nicht gefunden.</div>;
   }
@@ -104,20 +89,10 @@ export default function RaidDetailView({
         right={
           <div className="flex items-center gap-2">
             <div className="text-xs text-zinc-400">Roster: {rosterCount} • Signups: {signupsCount}</div>
-
-            {canShowEdit && (
-              <button
-                onClick={onToggleEdit}
-                className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                title={editOpen ? "Editor schließen" : "Raid bearbeiten"}
-              >
-                {editOpen ? "Editor schließen" : "Bearbeiten"}
-              </button>
-            )}
-
             <Link to="/raids" className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
               Zurück
             </Link>
+            
           </div>
         }
       >
@@ -145,26 +120,75 @@ export default function RaidDetailView({
         </div>
       </Section>
 
-      {/* Edit-Node (vom Container geliefert) */}
-      {editOpen && editNode}
-
       {/* Roster */}
       <Section title="Roster (geplant)">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Column title="🛡️ Tanks"   items={grouped?.saved?.tanks || []} picked canManage={canManage} onUnpick={unpick} busyIds={busyIds} />
-          <Column title="💚 Healers"  items={grouped?.saved?.heals || []} picked canManage={canManage} onUnpick={unpick} busyIds={busyIds} />
-          <Column title="🗡️ DPS"     items={grouped?.saved?.dps || []}   picked canManage={canManage} onUnpick={unpick} busyIds={busyIds} />
-          <Column title="🍀 Lootbuddies" items={grouped?.saved?.loot || []} picked canManage={canManage} onUnpick={unpick} busyIds={busyIds} />
+          <Column
+            title="🛡️ Tanks"
+            items={grouped?.saved?.tanks || []}
+            picked
+            canManage={canManage}
+            onUnpick={unpick}
+            busyIds={busyIds}
+          />
+          <Column
+            title="💚 Healers"
+            items={grouped?.saved?.heals || []}
+            picked
+            canManage={canManage}
+            onUnpick={unpick}
+            busyIds={busyIds}
+          />
+          <Column
+            title="🗡️ DPS"
+            items={grouped?.saved?.dps || []}
+            picked
+            canManage={canManage}
+            onUnpick={unpick}
+            busyIds={busyIds}
+          />
+          <Column
+            title="🍀 Lootbuddies"
+            items={grouped?.saved?.loot || []}
+            picked
+            canManage={canManage}
+            onUnpick={unpick}
+            busyIds={busyIds}
+          />
         </div>
       </Section>
 
       {/* Signups offen */}
       <Section title="Signups (offen)">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Column title="🛡️ Tanks"   items={grouped?.open?.tanks || []}  canManage={canManage} onPick={pick} busyIds={busyIds} />
-          <Column title="💚 Healers"  items={grouped?.open?.heals || []}  canManage={canManage} onPick={pick} busyIds={busyIds} />
-          <Column title="🗡️ DPS"     items={grouped?.open?.dps || []}    canManage={canManage} onPick={pick} busyIds={busyIds} />
-          <Column title="🍀 Lootbuddies" items={grouped?.open?.loot || []}  canManage={canManage} onPick={pick} busyIds={busyIds} />
+          <Column
+            title="🛡️ Tanks"
+            items={grouped?.open?.tanks || []}
+            canManage={canManage}
+            onPick={pick}
+            busyIds={busyIds}
+          />
+          <Column
+            title="💚 Healers"
+            items={grouped?.open?.heals || []}
+            canManage={canManage}
+            onPick={pick}
+            busyIds={busyIds}
+          />
+          <Column
+            title="🗡️ DPS"
+            items={grouped?.open?.dps || []}
+            canManage={canManage}
+            onPick={pick}
+            busyIds={busyIds}
+          />
+          <Column
+            title="🍀 Lootbuddies"
+            items={grouped?.open?.loot || []}
+            canManage={canManage}
+            onPick={pick}
+            busyIds={busyIds}
+          />
         </div>
       </Section>
     </div>
