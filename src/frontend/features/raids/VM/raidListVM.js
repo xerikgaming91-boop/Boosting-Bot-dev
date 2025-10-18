@@ -1,56 +1,58 @@
-// src/frontend/features/raids/vm/raidListVM.js
-
-function diffLabel(d) {
-  const v = String(d || "").toUpperCase();
-  if (v === "HC") return "HC";
-  if (v === "NORMAL" || v === "NHC") return "Normal";
-  if (v === "MYTHIC") return "Mythic";
-  return d || "-";
-}
-
-function lootLabel(l) {
-  const v = String(l || "").toLowerCase();
-  if (v === "vip") return "VIP";
-  if (v === "saved") return "Saved";
-  if (v === "unsaved") return "Unsaved";
-  return l || "-";
-}
-
-function toDateTimeLabels(iso) {
-  const d = iso ? new Date(iso) : null;
-  if (!d || Number.isNaN(d.getTime())) {
-    return { dateLabel: "-", timeLabel: "-" };
+/* --------- Leads robust normalisieren ---------- */
+function normalizeLeads(leads) {
+  if (Array.isArray(leads)) return leads;
+  if (Array.isArray(leads?.users)) return leads.users;
+  if (Array.isArray(leads?.leads)) return leads.leads;
+  if (leads && typeof leads === "object") {
+    return Object.values(leads).filter((v) => v && typeof v === "object");
   }
-  return {
-    dateLabel: d.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }),
-    timeLabel: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-  };
+  return [];
+}
+function getUserId(u) {
+  return u?.id ?? u?.discordId ?? u?.userId ?? u?.snowflake ?? "";
+}
+function getUserLabel(u) {
+  return (
+    u?.displayName ||
+    u?.username ||
+    u?.global_name ||
+    u?.nick ||
+    u?.name ||
+    u?.tag ||
+    u?.discordTag ||
+    getUserId(u) ||
+    ""
+  );
+}
+/* ---------------------------------------------- */
+
+function leadLabel(leads, leadId) {
+  const list = normalizeLeads(leads);
+  if (!leadId) return "—";
+  const u = list.find((x) => String(getUserId(x)) === String(leadId));
+  return u ? getUserLabel(u) : String(leadId);
 }
 
-function leadLabel(leadValue, leads = []) {
-  const s = leadValue == null ? "" : String(leadValue);
-  const found =
-    leads.find((u) => String(u.id) === s) ||
-    leads.find((u) => String(u.discordId) === s);
-  return found?.displayName || found?.username || found?.globalName || found?.name || s || "-";
+function fmtDate(ts) {
+  // einfache, defensive Formatierung; passe an dein echtes Feld an
+  try {
+    const d = new Date(ts);
+    if (!isNaN(d)) {
+      const dd = d.toLocaleDateString("de-DE");
+      const tt = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+      return `${dd} ${tt}`;
+    }
+  } catch {}
+  return ts ?? "—";
 }
 
-/**
- * Baut die Zeilen für die "dumme" RaidListTable auf.
- */
-export function buildRaidRowsVm(raids = [], leads = []) {
-  return (Array.isArray(raids) ? raids : []).map((r) => {
-    const { dateLabel, timeLabel } = toDateTimeLabels(r.date);
-    return {
-      id: r.id,
-      title: r.title || "-",
-      dateLabel,
-      timeLabel,
-      difficultyLabel: diffLabel(r.difficulty),
-      lootLabel: lootLabel(r.lootType),
-      bossesLabel: r.bosses ?? "-",
-      leadLabel: leadLabel(r.lead, leads),
-      detailUrl: `/raids/${r.id}`,
-    };
-  });
+export function buildRaidRowsVm(raids = [], leads) {
+  return (Array.isArray(raids) ? raids : []).map((r) => ({
+    id: r.id ?? r.raidId ?? r._id,
+    title: r.title ?? r.name ?? "Raid",
+    dateLabel: fmtDate(r.date ?? r.start ?? r.startAt ?? r.scheduledAt),
+    difficultyLabel: r.difficulty ?? r.diff ?? "—",
+    lootLabel: r.lootType ?? r.loot ?? "—",
+    leadLabel: leadLabel(leads, r.lead ?? r.leadId),
+  }));
 }

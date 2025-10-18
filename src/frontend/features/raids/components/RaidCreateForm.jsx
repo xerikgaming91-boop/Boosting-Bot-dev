@@ -1,183 +1,138 @@
-// src/frontend/features/raids/components/RaidEditForm.jsx
-import React, { useEffect, useMemo } from "react";
-import useRaidEdit from "../hooks/useRaidEdit";
+import { useMemo, useState } from "react";
 
-/**
- * RaidEditForm (Update)
- * - Felder: Datum/Zeit, Difficulty, LootType, (Lead nur für Admin/Owner), Bosses (nur bei Mythic)
- * - Lead-Auswahl wie in RaidCreateForm: Dropdown aus `leads` (Discord-Nutzer)
- *
- * Props:
- *  - raid              (required)    : Raw-Raid (id, date/dateTime, difficulty, lootType, bosses, lead*)
- *  - setRaid           (optional)    : Setter zum lokalen Aktualisieren
- *  - me                (optional)    : aktueller User (für Anzeige, falls Lead nicht editierbar)
- *  - canPickLead       (optional)    : true -> Lead-Dropdown; false -> nur Anzeige
- *  - leads             (optional)    : Array der möglichen Raidleads (discordId/id + displayName)
- *  - onClose           (optional)    : schließt die Form nach Speichern/Cancel
- */
-export default function RaidEditForm({
-  raid,
-  setRaid,
-  me,
-  canPickLead = false,
-  leads = [],
-  onClose,
-}) {
-  const edit = useRaidEdit({ raid, setRaid, canEditLead: canPickLead, onUpdated: onClose });
+/* --------- Leads robust normalisieren (egal welches Shape) ---------- */
+function normalizeLeads(leads) {
+  if (Array.isArray(leads)) return leads;
+  if (Array.isArray(leads?.users)) return leads.users;
+  if (Array.isArray(leads?.leads)) return leads.leads;
+  if (leads && typeof leads === "object") {
+    return Object.values(leads).filter((v) => v && typeof v === "object");
+  }
+  return [];
+}
+function getUserId(u) {
+  return u?.id ?? u?.discordId ?? u?.userId ?? u?.snowflake ?? "";
+}
+function getUserLabel(u) {
+  return (
+    u?.displayName ||
+    u?.username ||
+    u?.global_name ||
+    u?.nick ||
+    u?.name ||
+    u?.tag ||
+    u?.discordTag ||
+    getUserId(u) ||
+    ""
+  );
+}
+/* -------------------------------------------------------------------- */
 
-  const Field = ({ label, hint, children }) => (
-    <div className="space-y-1">
-      {label ? <label className="text-sm font-medium text-zinc-200">{label}</label> : null}
-      {children}
-      {hint ? <p className="text-xs text-zinc-400">{hint}</p> : null}
-    </div>
+export default function RaidCreateForm({ me, leads, canPickLead, onCreate }) {
+  // 1) Niemals direkt 'leads' benutzen → erst normalisieren:
+  const leadList = useMemo(() => normalizeLeads(leads), [leads]);
+
+  // 2) sinnvolle Defaults
+  const myId = me?.id ?? me?.discordId ?? me?.userId ?? null;
+  const myAsLead = useMemo(
+    () => leadList.find((u) => String(getUserId(u)) === String(myId)),
+    [leadList, myId]
   );
 
-  const isMythic = String(edit.form.difficulty || "").toLowerCase() === "mythic";
-  const leadKey = edit.form.__leadKey; // vom Hook ermittelt
+  const initialLeadId = canPickLead
+    ? (leadList[0] ? getUserId(leadList[0]) : "")
+    : (myAsLead ? getUserId(myAsLead) : "");
 
-  // Sicherstellen: Mythic -> LootType VIP
-  useEffect(() => {
-    if (isMythic && edit.form.lootType !== "VIP") {
-      edit.set("lootType", "VIP");
-    }
-  }, [isMythic]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 3) lokale Form-States
+  const [date, setDate] = useState("");            // dein Datumsformat; Hook/Backend wandelt
+  const [difficulty, setDifficulty] = useState(""); // "Normal" | "Heroic" | "Mythic"
+  const [lootType, setLootType] = useState("Unsaved"); // "Saved" | "Unsaved" | "VIP"
+  const [leadId, setLeadId] = useState(initialLeadId);
 
-  // Anzeige-Name für den aktuellen Lead (falls canPickLead=false)
-  const currentLeadDisplay = useMemo(() => {
-    if (!leadKey) return "";
-    const value = String(edit.form[leadKey] ?? "");
-    const found = (leads || []).find(
-      (u) => String(u.discordId || u.id) === value
-    );
-    return (
-      found?.displayName ||
-      found?.username ||
-      found?.globalName ||
-      raid?.leadDisplayName ||
-      raid?.leadUsername ||
-      raid?.lead ||
-      value
-    );
-  }, [leads, raid, leadKey, edit.form]);
+  // 4) Optionen für das Select
+  const leadOptions = useMemo(
+    () => leadList.map((u) => ({ value: getUserId(u), label: getUserLabel(u) })),
+    [leadList]
+  );
+
+  // 5) Submit
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!onCreate) return;
+
+    await onCreate({
+      date,           // <- formatiere ggf. in deiner create-Hook
+      difficulty,     // "Normal" | "Heroic" | "Mythic"
+      lootType,       // "Saved" | "Unsaved" | "VIP"
+      lead: leadId,   // nur die ID
+    });
+  };
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-100">Raid bearbeiten</h3>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-          >
-            Schließen
-          </button>
-        )}
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Datum & Zeit */}
+      <div className="form-control">
+        <label className="label">Datum & Zeit</label>
+        <input
+          type="text"                // nutze hier dein bisheriges Feld (z. B. datetime-local, text, etc.)
+          className="input"
+          placeholder="tt.mm.jjjj --:--"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+        />
       </div>
 
-      {edit.error && (
-        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2 text-xs text-rose-200">
-          {edit.error}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Datum & Zeit">
-          <input
-            type="datetime-local"
-            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
-            {...edit.bind("dateTime")}
-          />
-        </Field>
-
-        <Field label="Schwierigkeit">
-          <select
-            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
-            {...edit.bind("difficulty")}
-          >
-            <option value="">— auswählen —</option>
-            <option value="Normal">Normal</option>
-            <option value="Heroic">Heroic</option>
-            <option value="Mythic">Mythic</option>
-          </select>
-        </Field>
-
-        <Field label="Loot-Type" hint={isMythic ? "Bei Mythic ist nur VIP erlaubt." : undefined}>
-          <select
-            disabled={isMythic}
-            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600 disabled:opacity-60"
-            {...edit.bind("lootType")}
-          >
-            <option value="Saved">Saved</option>
-            <option value="Unsaved">Unsaved</option>
-            <option value="VIP">VIP</option>
-          </select>
-        </Field>
-
-        {/* Raidlead wie bei Create-Form: Dropdown aus 'leads' */}
-        {leadKey && (
-          canPickLead ? (
-            <Field label="Raidlead">
-              <select
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
-                {...edit.bind(leadKey)}
-              >
-                <option value="">– auswählen –</option>
-                {(leads || []).map((u) => {
-                  const value = String(u.discordId || u.id);
-                  const name =
-                    u.displayName || u.username || u.globalName || value;
-                  return (
-                    <option key={value} value={value}>
-                      {name}
-                    </option>
-                  );
-                })}
-              </select>
-            </Field>
-          ) : (
-            <Field label="Raidlead">
-              <input
-                disabled
-                className="w-full cursor-not-allowed rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-400"
-                value={currentLeadDisplay || (me?.displayName || me?.username || me?.discordId || me?.id || "")}
-                readOnly
-              />
-            </Field>
-          )
-        )}
-
-        {isMythic && (
-          <Field label="Bossanzahl (Mythic)">
-            <input
-              type="number"
-              min="0"
-              className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 text-zinc-200 outline-none focus:border-zinc-600"
-              placeholder="z. B. 8"
-              {...edit.bind("bosses")}
-            />
-          </Field>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          onClick={edit.submit}
-          disabled={edit.saving || !edit.dirty}
-          className="rounded-md bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-          title={!edit.dirty ? "Keine Änderungen" : "Änderungen speichern"}
+      {/* Schwierigkeit */}
+      <div className="form-control">
+        <label className="label">Schwierigkeit</label>
+        <select
+          className="select"
+          value={difficulty}
+          onChange={(e) => setDifficulty(e.target.value)}
         >
-          {edit.saving ? "Speichere…" : "Speichern"}
-        </button>
-
-        <button
-          onClick={edit.cancel}
-          disabled={edit.saving}
-          className="rounded-md border border-zinc-700 px-4 py-2 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-        >
-          Abbrechen
-        </button>
+          <option value="">— auswählen —</option>
+          <option value="Normal">Normal</option>
+          <option value="Heroic">Heroic</option>
+          <option value="Mythic">Mythic</option>
+        </select>
       </div>
-    </div>
+
+      {/* Loot-Type */}
+      <div className="form-control">
+        <label className="label">Loot-Type</label>
+        <select
+          className="select"
+          value={lootType}
+          onChange={(e) => setLootType(e.target.value)}
+        >
+          <option value="Unsaved">Unsaved</option>
+          <option value="Saved">Saved</option>
+          <option value="VIP">VIP</option>
+        </select>
+      </div>
+
+      {/* Raidleads */}
+      <div className="form-control">
+        <label className="label">Raidlead</label>
+        <select
+          className="select"
+          value={leadId}
+          onChange={(e) => setLeadId(e.target.value)}
+          disabled={!canPickLead && !myAsLead} // frei wählen nur Admin/Owner
+        >
+          <option value="">— auswählen —</option>
+          {leadOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="col-span-1 md:col-span-2 flex gap-2 mt-2">
+        <button type="submit" className="btn btn-primary">Speichern</button>
+        <button type="button" className="btn">Abbrechen</button>
+      </div>
+    </form>
   );
 }
