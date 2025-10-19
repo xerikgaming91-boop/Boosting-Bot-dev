@@ -150,7 +150,9 @@ function Column({ title, roleKey, items, canManage, onPick, onUnpick, busyIds, p
       </div>
       <div className="space-y-2">
         {items.length === 0 ? (
-          <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-500">keine</div>
+          <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-500">
+            keine
+          </div>
         ) : (
           items.map((s) => {
             const isBusy = busyIds?.has(s.id);
@@ -245,33 +247,26 @@ function Column({ title, roleKey, items, canManage, onPick, onUnpick, busyIds, p
  * - pick(id), unpick(id)
  * - busyIds: Set<number>
  */
-export default function RaidDetailView({
-  raid,
-  grouped,
-  canManage,
-  pick,
-  unpick,
-  busyIds,
-}) {
-=======
-/* ---------------- Main View ---------------- */
-export default function RaidDetailView({ raid, grouped, canManage, pick, unpick, busyIds, reload }) {
-  const [showEdit, setShowEdit] = useState(false);
-
->>>>>>> 741a4d8 (Edit form edit added)
+export default function RaidDetailView({ raid, grouped, canManage, pick, unpick, busyIds }) {
   if (!raid) {
-    return <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">Raid nicht gefunden.</div>;
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">
+        Raid nicht gefunden.
+      </div>
+    );
   }
 
-  const rosterCount = (grouped?.saved?.tanks?.length || 0)
-    + (grouped?.saved?.heals?.length || 0)
-    + (grouped?.saved?.dps?.length || 0)
-    + (grouped?.saved?.loot?.length || 0);
+  const rosterCount =
+    (grouped?.saved?.tanks?.length || 0) +
+    (grouped?.saved?.heals?.length || 0) +
+    (grouped?.saved?.dps?.length || 0) +
+    (grouped?.saved?.loot?.length || 0);
 
-  const signupsCount = (grouped?.open?.tanks?.length || 0)
-    + (grouped?.open?.heals?.length || 0)
-    + (grouped?.open?.dps?.length || 0)
-    + (grouped?.open?.loot?.length || 0);
+  const signupsCount =
+    (grouped?.open?.tanks?.length || 0) +
+    (grouped?.open?.heals?.length || 0) +
+    (grouped?.open?.dps?.length || 0) +
+    (grouped?.open?.loot?.length || 0);
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
@@ -280,26 +275,8 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
         title={raid.title}
         right={
           <div className="flex items-center gap-2">
-<<<<<<< HEAD
             <div className="text-xs text-zinc-400">Roster: {rosterCount} • Signups: {signupsCount}</div>
             <Link to="/raids" className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
-=======
-            <div className="text-xs text-zinc-400">
-              Roster: {rosterCount} • Signups: {signupsCount}
-            </div>
-            {canManage && (
-              <button
-                className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                onClick={() => setShowEdit(true)}
-              >
-                Bearbeiten
-              </button>
-            )}
-            <Link
-              to="/raids"
-              className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-            >
->>>>>>> 741a4d8 (Edit form edit added)
               Zurück
             </Link>
           </div>

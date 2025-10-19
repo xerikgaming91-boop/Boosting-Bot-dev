@@ -7,32 +7,29 @@ import {
   apiUnpickSignup,
 } from "@app/api/signupsAPI";
 import { apiGetMe } from "@app/api/usersAPI";
-import { apiMyChars } from "@app/api/charsAPI";
 
-/* ------------------------ helpers ------------------------ */
+// ---------- Helpers: Labels & Mapping ----------
 const U = (x) => String(x ?? "").toUpperCase();
 const L = (x) => String(x ?? "").toLowerCase();
 
-/* ------------------------ Number parsing (robust) ------------------------ */
-function toNumberLoose(v) {
-  if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  if (typeof v === "string") {
-    const m = v.match(/-?\d+(?:[.,]\d+)?/);
-    if (!m) return null;
-    const s = m[0].replace(",", ".");
-    const n = Number(s);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
+function normalizeBase(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
-function posNumLoose(v) {
-  const n = toNumberLoose(v);
-  return n && n > 0 ? n : null;
+function normalizeRealm(s) {
+  return normalizeBase(s).replace(/[\s'’\-_.]/g, "");
 }
-
-/* ------------------------ Small utils ------------------------ */
-const U = (x) => String(x ?? "").toUpperCase();
-const L = (x) => String(x ?? "").toLowerCase();
+function makeKey(name, realm) {
+  const n = normalizeBase(name);
+  if (!n) return null;
+  const r = normalizeRealm(realm || "");
+  return r ? `${n}|${r}` : n;
+}
+function uniq(arr) {
+  return Array.from(new Set(arr.filter(Boolean)));
+}
 
 function normalizeBase(s) {
   return String(s || "")
@@ -100,11 +97,6 @@ function toViewRaid(raid) {
     lootLabel: labelLoot(raid.lootType),
     bosses: Number.isFinite(Number(raid.bosses)) ? raid.bosses : "-",
     leadLabel,
-<<<<<<< HEAD
-=======
-    lead:
-      raid.lead ?? raid.leadId ?? raid.leadDiscordId ?? raid.leadUserId ?? null,
->>>>>>> 741a4d8 (Edit form edit added)
   };
 }
 
@@ -167,26 +159,16 @@ function isCharLockoutSavedFrom(s, c) {
 function normalizeSignupsPayload(payload) {
   if (!payload) return { picked: [], pending: [] };
 
-<<<<<<< HEAD
+  // { ok, picked, pending }
   if (Array.isArray(payload.picked) || Array.isArray(payload.pending)) {
     return {
       picked: payload.picked || [],
       pending: payload.pending || [],
     };
-=======
-function resolveCharForSignup(s, idx) {
-  if (!idx) return null;
-
-  // by id
-  const cid =
-    s?.char?.id ?? s?.charId ?? s?.characterId ?? s?.userCharId ?? null;
-  if (cid != null) {
-    const hit = idx.byId.get(String(cid));
-    if (hit) return hit;
->>>>>>> 741a4d8 (Edit form edit added)
   }
 
-  const list = Array.isArray(payload?.signups)
+  // { ok, signups: [] } oder direkt []
+  const list = Array.isArray(payload.signups)
     ? payload.signups
     : Array.isArray(payload)
     ? payload
@@ -410,6 +392,8 @@ function groupForView(signups, charIndex) {
       picked,
       logsUrl,
       note: s.note || "",
+      _raw: s,
+      _char: c || null,
     });
   };
 
@@ -420,8 +404,8 @@ function groupForView(signups, charIndex) {
 
 /* ------------------------ Hook ------------------------ */
 export default function useRaidDetail(raidId) {
-  const [raid, setRaid] = useState(null);        // VIEW-Form
-  const [grouped, setGrouped] = useState(null);  // { saved:{...}, open:{...} }
+  const [raid, setRaid] = useState(null);
+  const [grouped, setGrouped] = useState(null);
   const [me, setMe] = useState(null);
 
   const [loading, setLoading] = useState(true);
@@ -497,7 +481,6 @@ export default function useRaidDetail(raidId) {
     };
   }, [raidId]);
 
-  // permissions (Owner/Admin/Raidlead==lead)
   const canManage = useMemo(() => {
     if (!raid || !me) return false;
     const rl = me?.roleLevel ?? 0;
@@ -505,7 +488,7 @@ export default function useRaidDetail(raidId) {
     const isAdmin = !!me?.isAdmin || rl >= 2;
     const isLead =
       (me?.isRaidlead || rl >= 1) &&
-      String(me.discordId || me.id || "") === String((raid && raid.lead) || "");
+      String(me.discordId || me.id || "") === String(raid.lead ?? "");
     return isOwner || isAdmin || isLead;
   }, [raid, me]);
 
@@ -555,8 +538,8 @@ export default function useRaidDetail(raidId) {
   }
 
   return {
-    raid,          // { title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
-    grouped,       // { saved:{tanks,heals,dps,loot}, open:{...} }
+    raid,
+    grouped,
     canManage,
     loading,
     error,
