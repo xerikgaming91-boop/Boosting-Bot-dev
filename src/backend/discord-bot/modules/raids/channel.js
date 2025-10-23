@@ -157,13 +157,8 @@ function buildFinalChannelName(raid, leadReadable, ctx = "default") {
   return slug(name);
 }
 
-/* ======================== öffentliche API ======================== */
-/**
- * Sync-Helfer, den andere Module gerne aufrufen:
- *  - nutzt **raid.leadDisplayName**, das wir in ensureChannel setzen
- *  - wenn leer → lesbare Fallbacks (keine ID)
- *  - wenn weiterhin leer, loggen wir eine Warnung + Stacktrace
- */
+/* ============================= CREATE/RENAME ============================= */
+
 function channelNameFromRaid(raid) {
   const leadReadable = resolveLeadReadableFromRaidFields(raid /* no override */);
   const name = buildFinalChannelName(raid, leadReadable, "channelNameFromRaid");
@@ -174,13 +169,6 @@ function channelNameFromRaid(raid) {
   return name;
 }
 
-/* ============================= Main ============================== */
-/**
- * Erstellt den Channel (ohne Embed) und speichert die channelId.
- * Optionaler 2. Param 'leadOverride' kann den exakten Embed-Namen liefern.
- * WICHTIG: Wir schreiben den ermittelten Namen **in raid.leadDisplayName**,
- * damit spätere Aufrufer von channelNameFromRaid(raid) denselben Suffix bekommen.
- */
 async function ensureChannel(raid, leadOverride) {
   const { client, discord, inactive } = await getClient();
   if (inactive) return null;
@@ -199,31 +187,21 @@ async function ensureChannel(raid, leadOverride) {
 
   const guild = await client.guilds.fetch(GUILD_ID);
 
-  // 1) vorhandenen Channel wiederverwenden
+  // reuse
   if (raid.channelId) {
     try {
       const existing = await guild.channels.fetch(raid.channelId);
-      if (existing) {
-        LOG("channel exists:", { id: raid.channelId, name: existing?.name });
-        return existing;
-      }
+      if (existing) { LOG("channel exists:", { id: raid.channelId, name: existing?.name }); return existing; }
     } catch (e) { LOG("fetch existing failed → create new:", e?.message || e); }
   }
 
-  // 2) Lead-Name bestimmen
   const leadReadable = await resolveLeadReadable(raid, guild, client, leadOverride);
   LOG("leadReadable (final):", leadReadable);
+  if (isUsableName(leadReadable)) raid.leadDisplayName = leadReadable;
 
-  // 2a) **WICHTIG**: in das Raid-Objekt schreiben → spätere Calls sehen denselben Namen
-  if (isUsableName(leadReadable)) {
-    raid.leadDisplayName = leadReadable;
-  }
-
-  // 3) finalen Channelnamen bauen
   const finalName = buildFinalChannelName(raid, leadReadable, "ensureChannel");
   LOG("final channel name:", finalName);
 
-  // 4) Permissions
   const overwrites = [
     { id: guild.roles.everyone.id, deny: [discord.PermissionFlagsBits.ViewChannel] },
     { id: client.user.id, allow: [
@@ -239,7 +217,6 @@ async function ensureChannel(raid, leadOverride) {
   if (ROLE_BOOSTER_ID)    overwrites.push({ id: ROLE_BOOSTER_ID,    allow: [discord.PermissionFlagsBits.ViewChannel, discord.PermissionFlagsBits.SendMessages] });
   if (ROLE_LOOTBUDDYS_ID) overwrites.push({ id: ROLE_LOOTBUDDYS_ID, allow: [discord.PermissionFlagsBits.ViewChannel, discord.PermissionFlagsBits.SendMessages] });
 
-  // 5) Channel erstellen (hier KEIN Embed posten)
   const ch = await guild.channels.create({
     name: finalName,
     type: discord.ChannelType.GuildText,
@@ -249,17 +226,12 @@ async function ensureChannel(raid, leadOverride) {
   });
   LOG("channel created:", { id: ch.id, name: ch.name });
 
-  // 6) Channel-ID speichern
   await prisma.raid.update({ where: { id: raid.id }, data: { channelId: ch.id } });
   LOG("channelId persisted:", ch.id);
 
   return ch;
 }
 
-/**
- * Erzwingt den gewünschten Channelnamen (falls ein anderer Code ihn ändert).
- * - leadOverride: derselbe String wie im Embed (optional)
- */
 async function ensureChannelName(raid, leadOverride) {
   const { client } = await getClient();
   if (!raid?.channelId) { LOG("ensureChannelName skipped: no channelId on raid"); return null; }
@@ -268,9 +240,8 @@ async function ensureChannelName(raid, leadOverride) {
   const ch = await guild.channels.fetch(raid.channelId).catch(() => null);
   if (!ch) { LOG("ensureChannelName: channel not found for", raid.channelId); return null; }
 
-  // gewünschten Namen erneut bestimmen
   const desiredLead = await resolveLeadReadable(raid, guild, client, leadOverride);
-  if (isUsableName(desiredLead)) raid.leadDisplayName = desiredLead; // für nachfolgende Sync-Calls
+  if (isUsableName(desiredLead)) raid.leadDisplayName = desiredLead;
 
   const desiredName = buildFinalChannelName(raid, desiredLead, "ensureChannelName");
   if (ch.name !== desiredName) {
@@ -282,8 +253,64 @@ async function ensureChannelName(raid, leadOverride) {
   return ch;
 }
 
+/* ============================= DELETE ============================= */
+
+async function deleteChannelById(channelId, reason = "Raid deleted") {
+  try {
+    const { client } = await getClient();
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const ch = await guild.channels.fetch(channelId).catch(() => null);
+    if (!ch) {
+      LOG("deleteChannelById: channel not found", channelId);
+      return { ok: true, deleted: false };
+    }
+    await ch.delete(reason);
+    LOG("deleteChannelById: deleted", channelId);
+    return { ok: true, deleted: true };
+  } catch (e) {
+    LOG("deleteChannelById: error", e?.message || e);
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+/**
+ * Löscht den Channel eines Raids (falls vorhanden) und setzt channelId=null.
+ * raidOrRaidId: Raid-Objekt ODER Raid-ID (number)
+ */
+async function deleteChannelForRaid(raidOrRaidId, reason = "Raid deleted") {
+  let raid = raidOrRaidId;
+  if (typeof raidOrRaidId === "number") {
+    raid = await prisma.raid.findUnique({ where: { id: raidOrRaidId } });
+  }
+  if (!raid) {
+    LOG("deleteChannelForRaid: raid not found", raidOrRaidId);
+    return { ok: false, error: "RAID_NOT_FOUND" };
+  }
+
+  if (!raid.channelId) {
+    LOG("deleteChannelForRaid: no channelId on raid", raid.id);
+    return { ok: true, deleted: false };
+  }
+
+  const res = await deleteChannelById(raid.channelId, reason);
+
+  try {
+    await prisma.raid.update({
+      where: { id: raid.id },
+      data:  { channelId: null },
+    });
+    LOG("deleteChannelForRaid: channelId nulled for raid", raid.id);
+  } catch (e) {
+    LOG("deleteChannelForRaid: failed to null channelId", e?.message || e);
+  }
+
+  return res;
+}
+
 module.exports = {
   ensureChannel,
   ensureChannelName,
-  channelNameFromRaid, // nutzt raid.leadDisplayName (das wir jetzt setzen)
+  channelNameFromRaid,
+  deleteChannelById,
+  deleteChannelForRaid,
 };

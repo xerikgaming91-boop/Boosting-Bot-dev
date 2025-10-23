@@ -18,6 +18,9 @@ try {
   discordBot = { init: async () => false, syncRaid: async () => null };
 }
 
+// Discord-Channel Utilities (löschen beim Raid-Delete)
+const { deleteChannelForRaid } = require("../discord-bot/modules/raids/channel");
+
 /* ------------------------------ Helpers -------------------------------- */
 
 const DEFAULT_INSTANCE = "Manaforge";
@@ -243,7 +246,18 @@ async function remove(req, res) {
     if (!Number.isFinite(id)) {
       return res.status(400).json({ ok: false, error: "INVALID_ID", message: "Ungültige Raid-ID." });
     }
+
+    // 1) Discord-Channel löschen (falls vorhanden) + channelId=null
+    try {
+      await deleteChannelForRaid(id, `Raid #${id} deleted via API`);
+    } catch (e) {
+      console.warn("[raids/remove] deleteChannelForRaid warn:", e?.message || e);
+      // kein Hard-Fail – wir löschen den Raid trotzdem
+    }
+
+    // 2) Raid aus DB löschen
     await raids.remove(id);
+
     return res.json({ ok: true });
   } catch (e) {
     console.error("[raids/remove]", e);

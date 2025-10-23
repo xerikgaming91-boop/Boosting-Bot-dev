@@ -6,7 +6,7 @@ import RaidDetailView from "../components/RaidDetailView";
 
 export default function RaidDetail() {
   const { id } = useParams();
-  const { raid, grouped, canManage, loading, error, pick, unpick, busyIds } = useRaidDetail(Number(id));
+  const { raid, grouped, canManage, loading, error, pick, unpick, busyIds, reload } = useRaidDetail(Number(id));
 
   if (loading && !raid) {
     return <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">Lade …</div>;
@@ -23,6 +23,7 @@ export default function RaidDetail() {
       pick={pick}
       unpick={unpick}
       busyIds={busyIds}
+      reload={reload}
     />
   );
 }

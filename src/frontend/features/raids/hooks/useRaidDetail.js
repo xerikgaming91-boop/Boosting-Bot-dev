@@ -100,6 +100,11 @@ function toViewRaid(raid) {
     lootLabel: labelLoot(raid.lootType),
     bosses: Number.isFinite(Number(raid.bosses)) ? raid.bosses : "-",
     leadLabel,
+<<<<<<< HEAD
+=======
+    lead:
+      raid.lead ?? raid.leadId ?? raid.leadDiscordId ?? raid.leadUserId ?? null,
+>>>>>>> 741a4d8 (Edit form edit added)
   };
 }
 
@@ -162,11 +167,23 @@ function isCharLockoutSavedFrom(s, c) {
 function normalizeSignupsPayload(payload) {
   if (!payload) return { picked: [], pending: [] };
 
+<<<<<<< HEAD
   if (Array.isArray(payload.picked) || Array.isArray(payload.pending)) {
     return {
       picked: payload.picked || [],
       pending: payload.pending || [],
     };
+=======
+function resolveCharForSignup(s, idx) {
+  if (!idx) return null;
+
+  // by id
+  const cid =
+    s?.char?.id ?? s?.charId ?? s?.characterId ?? s?.userCharId ?? null;
+  if (cid != null) {
+    const hit = idx.byId.get(String(cid));
+    if (hit) return hit;
+>>>>>>> 741a4d8 (Edit form edit added)
   }
 
   const list = Array.isArray(payload?.signups)
@@ -546,5 +563,6 @@ export default function useRaidDetail(raidId) {
     pick,
     unpick,
     busyIds,
+    reload: load, // <<< neu
   };
 }

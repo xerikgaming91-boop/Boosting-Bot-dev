@@ -1,5 +1,5 @@
 // src/frontend/features/raids/components/RaidDetailView.jsx
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
 
 /* ---------- PNGs werden *gebundled* importiert (keine Server-Pfade) ---------- */
@@ -24,6 +24,8 @@ import ICON_HEAL from "../../../../assets/Roles/heal.png";
 import ICON_DPS from "../../../../assets/Roles/dps.png";
 import ICON_SAVED from "../../../../assets/Roles/saved.png";
 import ICON_UNSAVED from "../../../../assets/Roles/unsaved.png";
+
+import RaidEditForm from "./RaidEditForm";
 
 /* ---------------- Mapping: Klassenname -> Bild ---------------- */
 const CLASS_SLUGS = {
@@ -121,7 +123,8 @@ function ItemLine({ s }) {
           className="h-5 w-5"
           loading="lazy"
           draggable={false}
-          title={s.lockoutSaved ? "Saved (Lockout belegt)" : "UnSaved (freier Lockout)"}
+          title={s.lockoutSaved ? "Saved (Lockout belegt)" : "UnSaved (freier Lockout)"
+          }
         />
       </div>
 
@@ -233,6 +236,7 @@ function Column({ title, roleKey, items, canManage, onPick, onUnpick, busyIds, p
   );
 }
 
+<<<<<<< HEAD
 /**
  * Props:
  * - raid: { title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
@@ -249,6 +253,12 @@ export default function RaidDetailView({
   unpick,
   busyIds,
 }) {
+=======
+/* ---------------- Main View ---------------- */
+export default function RaidDetailView({ raid, grouped, canManage, pick, unpick, busyIds, reload }) {
+  const [showEdit, setShowEdit] = useState(false);
+
+>>>>>>> 741a4d8 (Edit form edit added)
   if (!raid) {
     return <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">Raid nicht gefunden.</div>;
   }
@@ -270,8 +280,26 @@ export default function RaidDetailView({
         title={raid.title}
         right={
           <div className="flex items-center gap-2">
+<<<<<<< HEAD
             <div className="text-xs text-zinc-400">Roster: {rosterCount} • Signups: {signupsCount}</div>
             <Link to="/raids" className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
+=======
+            <div className="text-xs text-zinc-400">
+              Roster: {rosterCount} • Signups: {signupsCount}
+            </div>
+            {canManage && (
+              <button
+                className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                onClick={() => setShowEdit(true)}
+              >
+                Bearbeiten
+              </button>
+            )}
+            <Link
+              to="/raids"
+              className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+            >
+>>>>>>> 741a4d8 (Edit form edit added)
               Zurück
             </Link>
           </div>
@@ -388,6 +416,17 @@ export default function RaidDetailView({
           />
         </div>
       </Section>
+
+      {/* Edit-Overlay */}
+      {showEdit && canManage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <RaidEditForm
+            raidId={raid.id}
+            onSaved={() => reload?.()}
+            onClose={() => setShowEdit(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }
