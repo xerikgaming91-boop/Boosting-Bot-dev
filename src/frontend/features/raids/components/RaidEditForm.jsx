@@ -5,9 +5,11 @@ import useRaidEditForm from "../hooks/useRaidEditForm";
 function Label({ children }) {
   return <div className="text-xs text-zinc-400 mb-1">{children}</div>;
 }
+
 function FieldRow({ children }) {
   return <div className="grid gap-4 sm:grid-cols-2">{children}</div>;
 }
+
 function Select({ value, onChange, children, disabled, ...rest }) {
   return (
     <select
@@ -21,6 +23,7 @@ function Select({ value, onChange, children, disabled, ...rest }) {
     </select>
   );
 }
+
 function Input({ value, onChange, type = "text", ...rest }) {
   return (
     <input
@@ -32,6 +35,7 @@ function Input({ value, onChange, type = "text", ...rest }) {
     />
   );
 }
+
 function NumberInput({ value, onChange, ...rest }) {
   return (
     <input
@@ -58,6 +62,7 @@ function leadLabel(l) {
     "-"
   );
 }
+
 function leadValue(l) {
   return String(l?.discordId ?? l?.id ?? l?.userId ?? "");
 }
@@ -66,8 +71,6 @@ export default function RaidEditForm({ raidId, onSaved, onClose }) {
   const {
     loading, saving, error,
     me, leads, canPickLead,
-    presets, presetId, setPresetId, presetSlots,
-    roleCounts,
     title, setTitle,
     difficulty, setDifficulty,
     lootType, setLootType,
@@ -134,44 +137,6 @@ export default function RaidEditForm({ raidId, onSaved, onClose }) {
             </label>
           </div>
 
-          {/* PRESET */}
-          <div>
-            <Label>Preset</Label>
-            <Select value={presetId} onChange={setPresetId}>
-              <option value="">– kein Preset –</option>
-              {Array.isArray(presets) &&
-                presets.map((p) => (
-                  <option key={String(p.id)} value={String(p.id)}>
-                    {p.name || p.title || `Preset #${p.id}`}
-                  </option>
-                ))}
-            </Select>
-
-            {/* Mini-Übersicht: definiert vs angemeldet */}
-            {presetSlots && (
-              <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-zinc-300">
-                <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2">
-                  <div className="text-zinc-400">Tanks</div>
-                  <div className="font-medium">{roleCounts.tanks} / {presetSlots.tanks ?? 0}</div>
-                </div>
-                <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2">
-                  <div className="text-zinc-400">Heals</div>
-                  <div className="font-medium">{roleCounts.heals} / {presetSlots.heals ?? 0}</div>
-                </div>
-                <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2">
-                  <div className="text-zinc-400">DPS</div>
-                  <div className="font-medium">{roleCounts.dps} / {presetSlots.dps ?? 0}</div>
-                </div>
-                <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2">
-                  <div className="text-zinc-400">Loot</div>
-                  <div className="font-medium">
-                    {roleCounts.loot}{presetSlots.loot != null ? ` / ${presetSlots.loot}` : " / ∞"}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
           <FieldRow>
             <div>
               <Label>Datum &amp; Uhrzeit</Label>
@@ -198,7 +163,7 @@ export default function RaidEditForm({ raidId, onSaved, onClose }) {
               <Select
                 value={lootType}
                 onChange={setLootType}
-                disabled={isMythic}
+                disabled={isMythic} // <- Mythic nur VIP
                 title={isMythic ? "Mythic erlaubt nur VIP" : undefined}
               >
                 {lootOptions.map((o) => (

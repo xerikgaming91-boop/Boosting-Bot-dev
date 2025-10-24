@@ -32,7 +32,6 @@ function mapErrorToMessage(payload) {
   return `Fehler: ${payload.error || "SERVER_ERROR"}`;
 }
 
-
 export default function useRaidCreateForm({ me, canPickLead, onCreate }) {
   const DEFAULT_RAID_NAME =
     (import.meta?.env?.VITE_DEFAULT_RAID_NAME || "Manaforge").toString().trim() || "Manaforge";

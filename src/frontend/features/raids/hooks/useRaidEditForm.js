@@ -21,6 +21,22 @@ function toInputLocal(iso) {
   }
 }
 
+function fromInputLocal(s) {
+  try {
+    const d = new Date(s);
+    if (isNaN(d)) return null;
+    return d.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function clampBosses(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 1;
+  return Math.max(1, Math.min(8, x));
+}
+
 function buildTitle({ base = DEFAULT_RAID_NAME, difficulty, lootType, bosses }) {
   const diff = String(difficulty || "").toUpperCase();
   const loot = String(lootType || "").toUpperCase();
@@ -82,12 +98,24 @@ export default function useRaidEditForm(raidId) {
       setLeads(leadsRes?.leads || []);
 
       const raw = raidRes?.raid || raidRes || null;
+
+      const diff = String(raw?.difficulty || "HC").toUpperCase();
+      const ltRaw = String(raw?.lootType || "vip").toLowerCase();
+
       setTitle(raw?.title || "");
-      setDifficulty(raw?.difficulty || "HC");
-      setLootType(raw?.lootType || "vip");
+      setDifficulty(diff);
       setDateLocal(toInputLocal(raw?.date));
-      setBosses(Number.isFinite(Number(raw?.bosses)) ? Number(raw.bosses) : 8);
-      setLead(raw?.lead || "");
+      setLead(String(raw?.lead ?? raw?.leadId ?? raw?.leadDiscordId ?? raw?.leadUserId ?? ""));
+
+      if (diff === "MYTHIC") {
+        setLootType("vip");
+        setBosses(clampBosses(raw?.bosses ?? 1));
+      } else {
+        setLootType(["vip", "saved", "unsaved"].includes(ltRaw) ? ltRaw : "vip");
+        setBosses(8);
+      }
+
+      setAutoTitle(false); // default: manuell, User kann aktivieren
     } catch (e) {
       setError(e);
     } finally {
@@ -97,15 +125,20 @@ export default function useRaidEditForm(raidId) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Regel: HC/Normal -> Bosses = 8, Loot ggf. korrigieren
+  // Regel: Umschalten der Difficulty erzwingt korrekte Loot/Boss-Settings
   useEffect(() => {
     const diff = String(difficulty || "").toUpperCase();
-    if (diff !== "MYTHIC") {
+    if (diff === "MYTHIC") {
+      if (lootType !== "vip") setLootType("vip");
+      setBosses((b) => clampBosses(b || 1));
+    } else {
+      // HC/NORMAL
       setBosses(8);
-      const allowed = lootOptionsFor(diff).map(o => o.value);
+      const allowed = lootOptionsFor(diff).map((o) => o.value);
       if (!allowed.includes(lootType)) setLootType("vip");
     }
-  }, [difficulty]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [difficulty]);
 
   // Auto-Titel
   useEffect(() => {
@@ -123,14 +156,21 @@ export default function useRaidEditForm(raidId) {
     setSaving(true);
     setError(null);
     try {
+      const diff = String(difficulty || "").toUpperCase();
+
+      // Erzwinge die Regeln auch hier (Safety-Net)
+      const safeLoot = diff === "MYTHIC" ? "vip" : (lootType || "vip");
+      const safeBosses = diff === "MYTHIC" ? clampBosses(bosses) : 8;
+
       const patch = {
         title: title.trim(),
-        difficulty,
-        lootType,
-        date: new Date(dateLocal).toISOString(),
-        bosses: Number(bosses) || 0,
+        difficulty: diff,
+        lootType: safeLoot,
+        date: fromInputLocal(dateLocal),
+        bosses: safeBosses,
         ...(canPickLead ? { lead: (lead || "").trim() } : {}),
       };
+
       const updated = await apiUpdateRaid(raidId, patch);
       return updated?.raid || updated || null;
     } catch (e) {
