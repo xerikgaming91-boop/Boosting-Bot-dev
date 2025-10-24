@@ -38,8 +38,9 @@ export default function RaidCreateForm({ me, leads = [], canPickLead = false, on
         />
       </div>
 
+      {/* Datum */}
       <div>
-        <label className="mb-1 block text-xs text-zinc-400">Datum & Zeit</label>
+        <label className="mb-1 block text-xs text-zinc-400">Datum &amp; Zeit</label>
         <input
           type="datetime-local"
           className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
@@ -49,6 +50,7 @@ export default function RaidCreateForm({ me, leads = [], canPickLead = false, on
         />
       </div>
 
+      {/* Difficulty */}
       <div>
         <label className="mb-1 block text-xs text-zinc-400">Difficulty</label>
         <select
@@ -62,6 +64,7 @@ export default function RaidCreateForm({ me, leads = [], canPickLead = false, on
         </select>
       </div>
 
+      {/* Loot */}
       <div>
         <label className="mb-1 block text-xs text-zinc-400">Loot</label>
         <select
@@ -76,10 +79,30 @@ export default function RaidCreateForm({ me, leads = [], canPickLead = false, on
         </select>
       </div>
 
-      {/* Bosse: nur bei Mythic editierbar; bei HC/Normal fix 8 */}
-      <div>
-        <label className="mb-1 block text-xs text-zinc-400">Bosses</label>
-        {form.isMythic ? (
+      {/* Preset (optional) */}
+      <div className="sm:col-span-2 lg:col-span-3">
+        <label className="mb-1 block text-xs text-zinc-400">Preset (optional)</label>
+        <select
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
+          value={form.presetId}
+          onChange={(e) => form.setPresetId(e.target.value)}
+        >
+          <option value="">– kein Preset –</option>
+          {form.presets.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name ?? `Preset #${p.id}`}
+              {typeof p.tanks === "number" || typeof p.heals === "number" || typeof p.dps === "number" || typeof p.loot === "number"
+                ? `  (T${p.tanks ?? 0}/H${p.heals ?? 0}/D${p.dps ?? 0}/L${p.loot ?? 0})`
+                : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Mythic: Bosse */}
+      {form.isMythic && (
+        <div>
+          <label className="mb-1 block text-xs text-zinc-400">Bosse (1–8)</label>
           <input
             type="number"
             min={1}
@@ -87,54 +110,40 @@ export default function RaidCreateForm({ me, leads = [], canPickLead = false, on
             className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
             value={form.bosses}
             onChange={(e) => form.setBosses(e.target.value)}
-            required
-          />
-        ) : (
-          <input
-            disabled
-            className="w-full cursor-not-allowed rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-zinc-400"
-            value={8}
-            readOnly
-            title="Bei Heroic/Normal ist die Bossanzahl fest 8."
-          />
-        )}
-      </div>
-
-      {canPickLead ? (
-        <div>
-          <label className="mb-1 block text-xs text-zinc-400">Raidlead</label>
-          <select
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
-            value={form.lead}
-            onChange={(e) => form.setLead(e.target.value)}
-          >
-            <option value="">– auswählen –</option>
-            {leads.map((u) => {
-              const value = u.discordId || String(u.id);
-              const name = u.displayName || u.username || u.globalName || value;
-              return <option key={value} value={value}>{name}</option>;
-            })}
-          </select>
-        </div>
-      ) : (
-        <div className="opacity-60">
-          <label className="mb-1 block text-xs text-zinc-400">Raidlead</label>
-          <input
-            disabled
-            className="w-full cursor-not-allowed rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-400"
-            value={me?.displayName || me?.username || me?.discordId || me?.id || ""}
-            readOnly
           />
         </div>
       )}
 
-      <div className="sm:col-span-2 lg:col-span-3">
+      {/* Lead (nur wenn Admin/Owner) – OHNE „mich selbst“-Option */}
+      {canPickLead && (
+        <div>
+          <label className="mb-1 block text-xs text-zinc-400">Raidlead (optional)</label>
+          <select
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100"
+            value={form.lead || ""}
+            onChange={(e) => form.setLead(e.target.value)}
+          >
+            <option value="">– Lead wählen –</option>
+            {leads?.map((u) => (
+              <option key={u.discordId || u.id} value={u.discordId || u.id}>
+                {u.displayName || u.username || u.name || u.discordTag || u.discordId || u.id}
+              </option>
+            ))}
+          </select>
+          <small className="text-xs text-zinc-400">
+            Keine Auswahl ⇒ Backend setzt automatisch dich als Lead.
+          </small>
+        </div>
+      )}
+
+      {/* Submit */}
+      <div className="sm:col-span-2 lg:col-span-3 flex justify-end">
         <button
           type="submit"
           disabled={form.submitting}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-emerald-500 disabled:opacity-60"
         >
-          {form.submitting ? "Erstelle …" : "Raid erstellen"}
+          {form.submitting ? "Erstelle…" : "Raid erstellen"}
         </button>
       </div>
     </form>

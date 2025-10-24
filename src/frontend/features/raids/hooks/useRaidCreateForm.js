@@ -1,5 +1,6 @@
 // src/frontend/features/raids/hooks/useRaidCreateForm.js
 import { useEffect, useMemo, useState } from "react";
+import { apiListPresets } from "@app/api/presetsAPI";
 
 function fmtDE(iso) {
   try {
@@ -15,7 +16,6 @@ function mapErrorToMessage(payload) {
   if (!payload) return "Unbekannter Fehler bei der Raid-Erstellung.";
   if (typeof payload === "string") return payload;
 
-  // Bevorzugt 'message' aus dem Backend:
   if (payload.message) return payload.message;
 
   const code = String(payload.error || "").toUpperCase();
@@ -36,16 +36,37 @@ export default function useRaidCreateForm({ me, canPickLead, onCreate }) {
   const DEFAULT_RAID_NAME =
     (import.meta?.env?.VITE_DEFAULT_RAID_NAME || "Manaforge").toString().trim() || "Manaforge";
 
+  // --- Presets -------------------------------------------------------------
+  const [presets, setPresets]   = useState([]);
+  const [presetId, setPresetId] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const list = await apiListPresets();
+        if (!alive) return;
+        setPresets(Array.isArray(list) ? list : []);
+      } catch {
+        if (!alive) return;
+        setPresets([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // --- Form-State ----------------------------------------------------------
   const [difficulty, setDifficulty] = useState("HC");          // "HC" | "Mythic" | "Normal"
   const [lootType, setLootType] = useState("vip");             // "vip" | "saved" | "unsaved"
   const [date, setDate] = useState("");                        // datetime-local
-  const [bosses, setBosses] = useState(8);                     // HC/Normal = 8
+  const [bosses, setBosses] = useState(8);                     // HC/Normal = 8 / bei Mythic 1..8
   const [lead, setLead] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const isMythic = difficulty === "Mythic";
 
+  // Mythic erzwingt VIP & min. 1 Boss
   useEffect(() => {
     if (isMythic) {
       if (!Number(bosses) || Number(bosses) < 1) setBosses(1);
@@ -98,69 +119,57 @@ export default function useRaidCreateForm({ me, canPickLead, onCreate }) {
     setError("");
     try {
       const when = date ? new Date(date) : new Date();
+
       const payload = {
         title: autoTitle,
         difficulty: difficulty || "HC",
         lootType: lootType || "vip",
         date: when.toISOString(),
         bosses: isMythic ? Number(bosses) || 8 : 8,
-        lead: canPickLead
-          ? (lead || "").trim()
-          : (me?.discordId || String(me?.id || "") || "").trim(),
+        // Lead: Wenn Admin/Owner einen Lead wählt -> schicken; sonst NICHT schicken (Backend setzt automatisch mich)
+        lead: canPickLead ? (lead || null) : null,
+        // Preset-ID (optional)
+        presetId: presetId ? Number(presetId) : null,
       };
 
-      // Aufrufer gibt i.d.R. { ok, raid } zurück, oder wirft bei Fehler mit Response/JSON.
-      const result = await onCreate?.(payload);
-
-      if (result?.ok) {
-        // Reset
-        setDifficulty("HC");
-        setLootType("vip");
-        setDate("");
-        setBosses(8);
-        if (canPickLead) setLead("");
-        return true;
+      const res = await onCreate(payload);
+      if (!res || res.ok !== true) {
+        throw res?.error || { error: "SERVER_ERROR" };
       }
 
-      if (result && !result.ok) {
-        setError(mapErrorToMessage(result));
-        return false;
-      }
-
-      // Fallback, falls nichts zurückkommt:
-      return true;
-    } catch (e) {
-      // Mögliche Fehlerstrukturen abfangen
-      let data = e?.body || e?.response?.data || e?.json;
-      if (!data && e?.response?.json && typeof e.response.json === "function") {
-        try { data = await e.response.json(); } catch {}
-      }
-      setError(mapErrorToMessage(data || e?.message || e));
-      return false;
-    } finally {
+      setBosses(isMythic ? 1 : 8);
       setSubmitting(false);
+      return res;
+    } catch (e) {
+      setError(mapErrorToMessage(e));
+      setSubmitting(false);
+      return { ok: false, error: e };
     }
   }
 
   return {
-    // state
+    // state + setter
+    date, setDate,
     difficulty, setDifficulty,
     lootType, setLootType,
-    date, setDate,
     bosses, setBosses,
     lead, setLead,
 
-    // derived
+    // Presets
+    presets,
+    presetId, setPresetId,
+
+    // computed
     isMythic,
     lootOptions,
     autoTitle,
 
-    // error
+    // status
+    submitting,
     error,
     clearError,
 
     // actions
     submit,
-    submitting,
   };
 }
