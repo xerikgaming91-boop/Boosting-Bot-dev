@@ -149,7 +149,7 @@ async function create(req, res) {
     };
     const saved = await raids.create(payload);
 
-    // Discord Bot sync (nicht kritisch): kein Rename beim Erstellen
+    // Discord Bot sync (nicht kritisch)
     try { await discordBot.syncRaid(saved); } catch (e) { console.warn("[discord/syncRaid:create]", e?.message || e); }
 
     return res.status(201).json({ ok: true, raid: saved });
@@ -226,9 +226,7 @@ async function update(req, res) {
     }
 
     const saved = await raids.update(id, patch);
-
-    // 🔁 Discord Sync: **nur** beim Update ist Rename erlaubt
-    try { await discordBot.syncRaid(saved, { allowRename: true }); } catch (e) { console.warn("[discord/syncRaid:update]", e?.message || e); }
+    try { await discordBot.syncRaid(saved); } catch (e) { console.warn("[discord/syncRaid:update]", e?.message || e); }
 
     return res.json({ ok: true, raid: saved });
   } catch (e) {

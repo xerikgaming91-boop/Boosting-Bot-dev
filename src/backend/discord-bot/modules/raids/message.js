@@ -37,30 +37,18 @@ async function postOrUpdateRaidMessage(channel, raid, leadDisplayName) {
       .setStyle(discord.ButtonStyle.Primary)
   );
 
-  // 🔎 Debug: was haben wir vor?
-  try {
-    if (raid.messageId) {
-      console.log("[raid:message] edit message", { raidId: raid.id, messageId: raid.messageId });
+  if (raid.messageId) {
+    try {
       const msg = await channel.messages.fetch(raid.messageId);
       if (msg) {
         await msg.edit({ ...payload, components: [row] });
         return msg;
       }
-    }
-  } catch (e) {
-    console.warn("[raid:message] edit failed – fallback to send", e?.message || e);
+    } catch { /* neu posten */ }
   }
 
-  console.log("[raid:message] send new message", { raidId: raid.id });
   const msg = await channel.send({ ...payload, components: [row] });
-
-  try {
-    await prisma.raid.update({ where: { id: raid.id }, data: { messageId: msg.id } });
-    console.log("[raid:message] messageId persisted", { raidId: raid.id, messageId: msg.id });
-  } catch (e) {
-    console.warn("[raid:message] persist messageId failed", e?.message || e);
-  }
-
+  await prisma.raid.update({ where: { id: raid.id }, data: { messageId: msg.id } });
   return msg;
 }
 

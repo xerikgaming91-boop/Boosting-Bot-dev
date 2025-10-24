@@ -150,22 +150,28 @@ async function removeByRaidAndChar(req, res) {
   }
 }
 
-// (optionale Routen – falls dein Projekt sie nutzt)
 async function listMine(req, res) {
   if (!requireAuthLocal(req, res)) return;
   try {
-    const rows = await signups.listByUser(req.user.discordId, { withChar: true, withUser: false }).catch(() => []);
+    const rows = await signups.listByUser(req.user.discordId, { withChar: true, withUser: false });
     return res.json({ ok: true, signups: rows });
   } catch (e) {
     console.error("[signups/listMine] error:", e);
     return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
   }
 }
+
 async function getOne(req, res) {
+  if (!requireAuthLocal(req, res)) return;
   try {
     const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "INVALID_ID" });
     const row = await signups.findById(id, { withChar: true, withUser: true });
-    if (!row) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
+    if (!row) return res.status(404).json({ ok: false, error: "SIGNUP_NOT_FOUND" });
+
+    if (!isLead(req.user) && String(row.userId || "") !== String(req.user.discordId || "")) {
+      return res.status(403).json({ ok: false, error: "FORBIDDEN" });
+    }
     return res.json({ ok: true, signup: row });
   } catch (e) {
     console.error("[signups/getOne] error:", e);
@@ -181,7 +187,6 @@ async function create(req, res) {
     if (ownOk?.notFound) return res.status(404).json({ ok: false, error: "CHAR_NOT_FOUND" });
     if (!ownOk) return res.status(403).json({ ok: false, error: "FORBIDDEN" });
 
-    // nur Pick erzwingen, wenn Lead/Admin/Owner
     const mayPick = isLead(req.user);
     const status = mayPick ? body.status : (U(body.status) === "PICKED" ? "SIGNUPED" : body.status);
 
@@ -202,14 +207,16 @@ async function create(req, res) {
 
     return res.status(201).json({ ok: true, signup: created });
   } catch (e) {
-    const status = e.status || (e.code === "CYCLE_CONFLICT" || e.code === "TIME_CONFLICT" || e.code === "RAID_CONFLICT" ? 409 : 500);
+    const status =
+      e.status ||
+      (e.code === "CYCLE_CONFLICT" || e.code === "TIME_CONFLICT" || e.code === "RAID_CONFLICT" ? 409 : 500);
     console.error("[signups/create] error:", e);
     return res.status(status).json({ ok: false, error: e.message || "SERVER_ERROR", meta: e.meta });
   }
 }
 
-async function upsertByKey(_req, res) { return res.status(501).json({ ok: false, error: "NOT_IMPLEMENTED" }); }
-async function update(_req, res)     { return res.status(501).json({ ok: false, error: "NOT_IMPLEMENTED" }); }
+async function upsertByKey(req, res) { return res.status(501).json({ ok: false, error: "NOT_IMPLEMENTED" }); }
+async function update(req, res)     { return res.status(501).json({ ok: false, error: "NOT_IMPLEMENTED" }); }
 
 async function remove(req, res) {
   if (!requireAuthLocal(req, res)) return;
@@ -240,7 +247,7 @@ async function pick(req, res) {
 
     const isLoot = isLootRole(sg.type);
 
-    // Regel 1: pro Raid max. 1 Boost-Char
+    // --- Regel 1: pro Raid max. 1 Boost-Char ---
     if (!isLoot) {
       const signupsInRaid = await signupSvc.listByRaid(sg.raidId);
       const myBoostInSameRaid = (signupsInRaid || []).some(
@@ -261,11 +268,11 @@ async function pick(req, res) {
       }
     }
 
-    // Regel 2: 90-Minuten-Kollisionen NUR mit anderen Raids
+    // --- Regel 2: 90-Minuten-Kollisionen NUR mit anderen Raids ---
     const dThis = toDateSafe(raid.date);
     const { from, to } = makeWindow(dThis, 90);
 
-    // Kandidaten-IDs sammeln
+    // Kandidaten-IDs sammeln (für unterschiedliche Speicherung)
     const idCandidates = getUserIdCandidates(sg, req);
 
     // Für alle Kandidaten Signups laden und zusammenführen
@@ -291,7 +298,7 @@ async function pick(req, res) {
       return true;
     });
 
-    // Zeitfenster checken
+    // Raids der anderen Picks laden und Zeitfenster checken
     for (const s of otherPicked) {
       const r = await raids.findById(s.raidId, { withCounts: false, withPreset: false });
       const d = toDateSafe(r?.date);
@@ -307,10 +314,10 @@ async function pick(req, res) {
       }
     }
 
-    // Gleich-raidiger Doppel-Pick ist erlaubt → persistieren
+    // Gleich-raidiger Doppel-Pick (Loot+Boost / Boost+Loot) ist erlaubt → direkt persistieren
     const saved = await persistPickDirect(id, req.user);
 
-    try { await discordBot.syncRaid(sg.raidId); } catch {}
+    try { await discordBot.syncRaid(saved.raidId); } catch {}
     return res.json({ ok: true, signup: saved });
   } catch (e) {
     console.error("[signups/pick] error:", e);
@@ -325,21 +332,9 @@ async function unpick(req, res) {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "INVALID_ID" });
 
-    // >>> WICHTIG: RaidId *vor* dem Update besorgen (manche Persist-Methoden liefern sie nicht zurück)
-    const existing = await signups.findById(id, { withChar: false, withUser: false }).catch(() => null);
-    const raidId = existing?.raidId ?? null;
-    console.log("[signups/unpick] signupId=%s raidId(before)=%s", id, raidId);
-
     const saved = await persistUnpickDirect(id, req.user);
-
-    const rid = saved?.raidId ?? raidId;
-    if (rid) {
-      try { await discordBot.syncRaid(rid); } catch {}
-    } else {
-      console.warn("[signups/unpick] WARN: keine raidId zum Sync vorhanden (signupId=%s)", id);
-    }
-
-    return res.json({ ok: true, signup: { ...saved, raidId: rid } });
+    try { await discordBot.syncRaid(saved.raidId); } catch {}
+    return res.json({ ok: true, signup: saved });
   } catch (e) {
     console.error("[signups/unpick] error:", e);
     return res.status(e.status || 500).json({ ok: false, error: e.message || "SERVER_ERROR" });
