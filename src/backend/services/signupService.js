@@ -31,7 +31,7 @@ function normalizeType(t) {
 async function assertNoPickedDuplicateInCycle({ targetRaidId, charId, excludeSignupId }) {
   if (!charId) return;
   const raid = await prisma.raid.findUnique({ where: { id: Number(targetRaidId) }, select: { id: true, date: true } });
-  if (!raid || !raid.date) return; // kein strikter Block falls kein Datum
+  if (!raid || !raid.date) return;
 
   const { start, end } = getCycleBounds(raid.date);
   const existing = await prisma.signup.findFirst({
@@ -55,9 +55,6 @@ async function assertNoPickedDuplicateInCycle({ targetRaidId, charId, excludeSig
 // Service API
 // --------------------------------------------------
 
-/**
- * Liste aller Signups für einen Raid (inkl. Char-Basisdaten)
- */
 async function listByRaid(raidId) {
   const id = Number(raidId);
   if (!Number.isFinite(id)) {
@@ -73,13 +70,6 @@ async function listByRaid(raidId) {
   return signups;
 }
 
-/**
- * Signup erstellen (normal oder Lootbuddy)
- * payload: {
- *   raidId, userId, type, charId?, displayName?, saved?, note?, class?, status?
- * }
- * options: { actor?: {discordId,isAdmin,isOwner,isRaidlead} }
- */
 async function create(payload, options = {}) {
   const actor = options.actor || null;
 
@@ -118,7 +108,6 @@ async function create(payload, options = {}) {
       e.status = 404;
       throw e;
     }
-    // Ownership (nur wenn actor vorhanden und nicht Lead/Admin/Owner)
     if (actor && !(actor.isOwner || actor.isAdmin || actor.isRaidlead)) {
       if (String(char.userId) !== String(actor.discordId || "")) {
         const e = new Error("FOREIGN_CHAR");
@@ -127,32 +116,24 @@ async function create(payload, options = {}) {
       }
     }
   } else {
-    // Lootbuddy: charId MUSS null sein
     charId = null;
   }
 
-  // Berechtigung für saved/PICKED
   const mayManage = canManageRaid(actor, raid);
-
-  // saved nur, wenn actor darf
   const saved = !!(payload.saved && mayManage);
 
-  // status default
   let status = upper(payload.status || "SIGNUPED");
   if (status === "PICKED" && !mayManage) status = "SIGNUPED";
 
-  // Cycle-Check nur wenn PICKED (und char vorhanden)
   if (status === "PICKED" && charId) {
     await assertNoPickedDuplicateInCycle({ targetRaidId: raidId, charId });
   }
 
-  // displayName fallback
   const displayName =
     payload.displayName ||
     (actor ? actor.displayName || actor.username : null) ||
     String(payload.userId || "");
 
-  // Für normale Signups: class vom Char übernehmen
   const klass = isLootbuddy ? (payload.class || null) : (char?.class || null);
 
   try {
@@ -161,7 +142,7 @@ async function create(payload, options = {}) {
         raidId,
         userId: String(payload.userId || ""),
         type,
-        charId,                         // null bei Lootbuddy → erlaubt
+        charId,
         displayName,
         saved,
         note: payload.note || null,
@@ -172,7 +153,6 @@ async function create(payload, options = {}) {
     });
     return created;
   } catch (e) {
-    // Unique (raidId,charId)
     if (e?.code === "P2002") {
       const err = new Error("DUPLICATE_SIGNUP");
       err.status = 409;
@@ -182,9 +162,6 @@ async function create(payload, options = {}) {
   }
 }
 
-/**
- * Signup löschen (optional mit actor-Check)
- */
 async function remove(id, options = {}) {
   const actor = options.actor || null;
   const signupId = Number(id);
@@ -205,7 +182,6 @@ async function remove(id, options = {}) {
   }
 
   if (actor && !(actor.isOwner || actor.isAdmin)) {
-    // Owner des Signups oder Lead des Raids
     const raid = await prisma.raid.findUnique({ where: { id: s.raidId }, select: { id: true, lead: true } });
     const isOwnerOfSignup = String(s.userId || "") === String(actor.discordId || "");
     const isLeadOfRaid = !!(actor.isRaidlead) && String(raid?.lead || "") === String(actor.discordId || "");

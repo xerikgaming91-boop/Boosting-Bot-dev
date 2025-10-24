@@ -22,7 +22,7 @@ const signups = require("../models/signupModel");
 const raids = require("../models/raidModel");
 const chars = require("../models/charModel");
 
-// 👉 Cycle (Mi 08:00 → Mi 07:00) – statt utils/cycles jetzt cycleWindow
+// 👉 Cycle (Mi 08:00 → Mi 07:00)
 const { getCycleWindowFor } = require("../utils/cycleWindow");
 const { prisma } = require("../prismaClient.js");
 
@@ -51,7 +51,7 @@ async function ensureOwnCharOrLead(reqUser, charId) {
 }
 
 /**
- * Cycle-Duplikat-Prüfung für PICKED:
+ * Cycle-Duplikat-Prüfung für PICKED (wird weiterhin in create/update genutzt):
  * Char darf im selben Cycle UND in derselben Difficulty nicht bereits in anderem Raid PICKED sein.
  */
 async function assertNoPickedDuplicateInCycle({ targetRaidId, charId, excludeSignupId }) {
@@ -71,7 +71,7 @@ async function assertNoPickedDuplicateInCycle({ targetRaidId, charId, excludeSig
       status: "PICKED",
       raid: {
         date: { gte: start, lt: end },
-        difficulty: targetDiff, // 🔒 nur gleiche Difficulty blockiert
+        difficulty: targetDiff,
       },
       ...(excludeSignupId ? { NOT: { id: Number(excludeSignupId) } } : {}),
     },
@@ -84,6 +84,44 @@ async function assertNoPickedDuplicateInCycle({ targetRaidId, charId, excludeSig
     err.meta = { conflictSignupId: existing.id, conflictRaidId: existing.raidId, cycleStart: start, cycleEnd: end, difficulty: targetDiff };
     throw err;
   }
+}
+
+/**
+ * 90-Minuten-Zeitfenster nur zwischen verschiedenen Raids (pro User).
+ * Booster+Lootbuddy im selben Raid ist erlaubt.
+ */
+async function assertNoTimeConflict90MinDifferentRaid({ targetRaidId, userId }) {
+  const target = await raids.findById(targetRaidId, { withCounts: false, withPreset: false });
+  if (!target || !target.date) return;
+
+  const targetDate = new Date(target.date).getTime();
+  const windowMs = 90 * 60 * 1000;
+
+  const others = await prisma.signup.findMany({
+    where: { userId: String(userId || ""), status: "PICKED" },
+    select: { id: true, raidId: true, raid: { select: { date: true } } },
+  });
+
+  for (const o of others) {
+    if (Number(o.raidId) === Number(targetRaidId)) continue; // gleicher Raid darf kombiniert werden
+    const d = o.raid?.date ? new Date(o.raid.date).getTime() : null;
+    if (!d) continue;
+    if (Math.abs(d - targetDate) <= windowMs) {
+      const err = new Error("TIME_CONFLICT_90_MIN");
+      err.code = "TIME_CONFLICT_90_MIN";
+      err.meta = { existingRaidId: o.raidId, newRaidId: targetRaidId };
+      throw err;
+    }
+  }
+}
+
+function isBoostRole(t) {
+  const v = String(t || "").toUpperCase();
+  return v === "TANK" || v === "HEAL" || v === "HEALER" || v === "DPS" || v === "BOOSTER";
+}
+function isLootRole(t) {
+  const v = String(t || "").toUpperCase();
+  return v === "LOOT" || v === "LOOTBUDDY";
 }
 
 /* ------------------------------ Controller ------------------------------ */
@@ -114,14 +152,12 @@ async function removeByRaidAndChar(req, res) {
       return res.status(400).json({ ok: false, error: "INVALID_IDS" });
     }
 
-    // Signup via unique (raidId,charId) finden
     const signup = await prisma.signup.findUnique({
       where: { raidId_charId: { raidId, charId } },
       select: { id: true, userId: true, raidId: true },
     });
     if (!signup) return res.status(404).json({ ok: false, error: "SIGNUP_NOT_FOUND" });
 
-    // Raid + Rechte prüfen
     const raid = await raids.findById(raidId, { withCounts: false, withPreset: false });
     if (!raid) return res.status(404).json({ ok: false, error: "RAID_NOT_FOUND" });
 
@@ -345,14 +381,37 @@ async function pick(req, res) {
     const canPick = isLead(req.user) && (req.user.isAdmin || req.user.isOwner || String(raid.lead || "") === String(req.user.discordId || ""));
     if (!canPick) return res.status(403).json({ ok:false, error:"FORBIDDEN" });
 
-    // Cycle-Check inkl. Difficulty
-    await assertNoPickedDuplicateInCycle({ targetRaidId: s.raidId, charId: s.charId, excludeSignupId: s.id });
+    // 1) genau 1 Booster pro Raid/User (Lootbuddy beliebig)
+    if (!isLootRole(s.type)) {
+      const already = await prisma.signup.findFirst({
+        where: {
+          raidId: s.raidId,
+          userId: String(s.userId || ""),
+          status: "PICKED",
+          type: { in: ["TANK","HEAL","HEALER","DPS","BOOSTER"] },
+          NOT: { id: Number(s.id) },
+        },
+        select: { id: true },
+      });
+      if (already) {
+        return res.status(409).json({ ok:false, error:"ALREADY_BOOSTER_IN_RAID" });
+      }
+    }
 
+    // 2) 90-Minuten-Kollision zwischen verschiedenen Raids (pro User)
+    await assertNoTimeConflict90MinDifferentRaid({ targetRaidId: s.raidId, userId: s.userId });
+
+    // Persistieren
     const saved = await signups.update(id, { saved: true, status: "PICKED" }, { withChar:true, withUser:false });
+
+    // Discord nur Embed aktualisieren
     try { await discordBot.syncRaid(s.raidId); } catch {}
+
     return res.json({ ok:true, signup:saved });
   } catch (e) {
-    if (e?.code === "CYCLE_CONFLICT") return res.status(409).json({ ok:false, error:e.message, meta:e.meta });
+    if (e?.code === "TIME_CONFLICT_90_MIN") {
+      return res.status(409).json({ ok:false, error:e.message, code:e.code, meta:e.meta });
+    }
     console.error("[signups/pick] error:", e);
     return res.status(500).json({ ok:false, error:"SERVER_ERROR" });
   }
