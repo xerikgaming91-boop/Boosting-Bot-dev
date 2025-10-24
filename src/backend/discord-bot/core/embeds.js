@@ -8,53 +8,75 @@ function fmtDate(d) {
 }
 function up(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ""; }
 
-function mkHeaderEmbed(raid, leadDisplayName) {
+function roleKey(type) {
+  const v = String(type || "").toLowerCase();
+  if (v.startsWith("tank")) return "tanks";
+  if (v.startsWith("heal")) return "heals";
+  if (v.startsWith("dps")) return "dps";
+  if (v.startsWith("loot")) return "loot";
+  return "dps";
+}
+function countByRole(list) {
+  const c = { tanks: 0, heals: 0, dps: 0, loot: 0 };
+  (Array.isArray(list) ? list : []).forEach((s) => {
+    const k = roleKey(s?.type || s?.role || s?.class);
+    c[k] += 1;
+  });
+  return c;
+}
+function toSlots(preset) {
+  if (!preset) return null;
+  const n = (x) => (x == null ? null : Number(x));
+  return {
+    name: preset.name || preset.title || "",
+    tanks: n(preset.tanks) ?? n(preset.tank) ?? n(preset.numTanks) ?? 0,
+    heals: n(preset.heals) ?? n(preset.healer) ?? n(preset.numHeals) ?? 0,
+    dps:   n(preset.dps)   ?? n(preset.numDps) ?? 0,
+    loot:  n(preset.loot)  ?? null, // null = ∞
+  };
+}
+
+function mkHeaderEmbed(raid, leadDisplayName, allSignups) {
   const { title, difficulty, lootType, date, bosses = 8 } = raid || {};
+
+  // Preset
+  const slots = toSlots(raid?.preset || raid?.presetSlots || null);
+  const counts = countByRole(allSignups || []);
+
+  const presetLine = slots
+    ? `\n**Preset:** 🛡️ ${counts.tanks}/${slots.tanks}  •  ✚ ${counts.heals}/${slots.heals}  •  🗡️ ${counts.dps}/${slots.dps}  •  🍀 ${counts.loot}/${slots.loot != null ? slots.loot : "∞"}`
+    : "";
+
   return {
     title: title || "Raid",
     description: [
       "Anmeldungen über Website / Buttons",
       "",
-      `**Datum**       ${fmtDate(date)}`,
-      `**Raid Leader** ${leadDisplayName ? leadDisplayName : "-"}`,
-      `**Loot Type**   ${up(lootType) || "-"}`,
-    ].join("\n"),
-    color: 0x00b894,
-    footer: { text: `RID:${raid?.id ?? "-"}` },
-    timestamp: new Date().toISOString(),
+      `**Datum:** ${fmtDate(date)}`,
+      `**Difficulty:** ${up(String(difficulty || ""))}`,
+      `**Loot:** ${up(String(lootType || ""))}`,
+      `**Bosses:** ${Number.isFinite(Number(bosses)) ? bosses : "-"}`,
+      `**Lead:** ${leadDisplayName || "-"}`,
+      presetLine,
+    ].filter(Boolean).join("\n"),
+    color: 0xffc107,
   };
 }
 
-function renderRoleLine(label, items) {
-  const v = items?.length ? items.join(", ") : "keine";
-  return `**${label}** ${v}`;
+/* ------- Roster & Signups (bestehend) ------- */
+function renderRoleLine(label, arr) {
+  if (!arr?.length) return `${label}: –`;
+  return `${label}: ${arr.map(s => s.who || s.displayName || s.name).join(", ")}`;
 }
-
-function groupLines(signups) {
-  const tanks = [];
-  const heals = [];
-  const dps   = [];
-  const loots = [];
-
-  for (const s of signups) {
-    const name = s.char?.name
-      ? `${s.char.name}${s.char.realm ? "-" + s.char.realm : ""}`
-      : (s.displayName || s.userId);
-
-    const klass = s.char?.class || s.class || "";
-    const role  = (s.type || "").toUpperCase();
-
-    const label = klass ? `${name} (${klass})` : name;
-
-    if (role === "TANK") tanks.push(label);
-    else if (role === "HEAL" || role === "HEALER") heals.push(label);
-    else if (role === "LOOTBUDDY") loots.push(label);
-    else dps.push(label);
-  }
+function groupLines(list) {
+  const tanks = (list || []).filter(s => roleKey(s.role || s.type || s.class) === "tanks");
+  const heals = (list || []).filter(s => roleKey(s.role || s.type || s.class) === "heals");
+  const dps   = (list || []).filter(s => roleKey(s.role || s.type || s.class) === "dps");
+  const loots = (list || []).filter(s => roleKey(s.role || s.type || s.class) === "loot");
 
   return [
     renderRoleLine("🛡️ Tanks", tanks),
-    renderRoleLine("💚 Healers", heals),
+    renderRoleLine("✚ Heals", heals),
     renderRoleLine("🗡️ DPS", dps),
     renderRoleLine("🍀 Lootbuddys", loots),
   ];
@@ -72,22 +94,19 @@ function mkRosterEmbed(raid, savedSignups) {
 function mkSignupsEmbed(raid, pendingSignups) {
   const lines = groupLines(pendingSignups);
   return {
-    title: `Signups (${pendingSignups.length})`,
+    title: `Signups (Open) (${pendingSignups.length})`,
     description: `${lines.join("\n")}\n\nRID:${raid?.id ?? "-"}`,
-    color: 0x636e72,
+    color: 0x00b894,
   };
 }
 
-/**
- * Baut ALLE Embeds (Header + Roster + Signups)
- */
 function buildRaidEmbeds(raid, allSignups, leadDisplayName) {
-  const saved   = allSignups.filter(s => !!s.saved);
-  const pending = allSignups.filter(s => !s.saved);
+  const saved   = (allSignups || []).filter(s => !!s.saved);
+  const pending = (allSignups || []).filter(s => !s.saved);
 
   return {
     embeds: [
-      mkHeaderEmbed(raid, leadDisplayName),
+      mkHeaderEmbed(raid, leadDisplayName, allSignups),
       mkRosterEmbed(raid, saved),
       mkSignupsEmbed(raid, pending),
     ],
