@@ -14,41 +14,63 @@ function Section({ title, children, right }) {
   );
 }
 
+function InfoItem({ label, value }) {
+  // Schlank: keine Box, nur Label + Wert
+  return (
+    <div className="py-2">
+      <div className="text-xs text-zinc-400">{label}</div>
+      <div className="mt-1 text-sm text-zinc-100 truncate">{value ?? "-"}</div>
+    </div>
+  );
+}
+
 function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) {
   return (
     <div>
       <div className="mb-2 text-xs font-medium text-zinc-400">{title}</div>
       <div className="space-y-2">
         {items.length === 0 ? (
-          <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-500">keine</div>
+          <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-500">
+            keine
+          </div>
         ) : (
           items.map((s) => (
-            <div key={s.id} className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+            <div
+              key={s.id}
+              className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+            >
               <div className="min-w-0">
                 <div className="truncate text-zinc-100">{s.who}</div>
                 <div className="text-xs text-zinc-400">
-                  {s.classLabel} • {s.roleLabel}{s.note ? ` • ${s.note}` : ""}
+                  {s.classLabel}
+                  {s.itemLevel ? ` • ${s.itemLevel} ilvl` : ""}
+                  {` • ${s.roleLabel}`}
+                  {s.note ? ` • ${s.note}` : ""}
                 </div>
               </div>
 
               {canManage && (
-                picked ? (
-                  <button
-                    onClick={() => onUnpick?.(s.id)}
-                    disabled={busyIds?.has(s.id)}
-                    className="rounded-md bg-rose-600 px-3 py-1 text-xs font-medium text-white hover:bg-rose-500 disabled:opacity-50"
-                  >
-                    Unpick
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => onPick?.(s.id)}
-                    disabled={busyIds?.has(s.id)}
-                    className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                  >
-                    Pick
-                  </button>
-                )
+                <div className="ml-3 flex shrink-0 items-center gap-2">
+                  {picked ? (
+                    <button
+                      className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+                      onClick={() => onUnpick?.(s.id)}
+                      disabled={busyIds?.has?.(s.id)}
+                      title="Aus Roster entfernen"
+                    >
+                      Unpick
+                    </button>
+                  ) : (
+                    <button
+                      className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+                      onClick={() => onPick?.(s.id)}
+                      disabled={busyIds?.has?.(s.id)}
+                      title="Zum Roster hinzufügen"
+                    >
+                      Pick
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ))
@@ -68,54 +90,56 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
  */
 export default function RaidDetailView({ raid, grouped, canManage, pick, unpick, busyIds }) {
   if (!raid) {
-    return <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">Raid nicht gefunden.</div>;
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">
+        Raid nicht gefunden.
+      </div>
+    );
   }
 
-  const rosterCount = (grouped?.saved?.tanks?.length || 0)
-    + (grouped?.saved?.heals?.length || 0)
-    + (grouped?.saved?.dps?.length || 0)
-    + (grouped?.saved?.loot?.length || 0);
+  const rosterCount =
+    (grouped?.saved?.tanks?.length || 0) +
+    (grouped?.saved?.heals?.length || 0) +
+    (grouped?.saved?.dps?.length || 0) +
+    (grouped?.saved?.loot?.length || 0);
 
-  const signupsCount = (grouped?.open?.tanks?.length || 0)
-    + (grouped?.open?.heals?.length || 0)
-    + (grouped?.open?.dps?.length || 0)
-    + (grouped?.open?.loot?.length || 0);
+  const signupsCount =
+    (grouped?.open?.tanks?.length || 0) +
+    (grouped?.open?.heals?.length || 0) +
+    (grouped?.open?.dps?.length || 0) +
+    (grouped?.open?.loot?.length || 0);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 p-4">
-      {/* Header */}
+    <div className="space-y-4">
+      {/* Header wie in deinem Screenshot: Titel links, rechts Zähler + Zurück */}
       <Section
         title={raid.title}
         right={
-          <div className="flex items-center gap-2">
-            <div className="text-xs text-zinc-400">Roster: {rosterCount} • Signups: {signupsCount}</div>
-            <Link to="/raids" className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-zinc-400">
+              <span className="mr-3">
+                Roster: <b className="text-zinc-100">{rosterCount}</b>
+              </span>
+              <span>
+                Signups: <b className="text-zinc-100">{signupsCount}</b>
+              </span>
+            </div>
+            <Link
+              to="/raids"
+              className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/20"
+            >
               Zurück
             </Link>
           </div>
         }
       >
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="text-sm text-zinc-300">
-            <div className="text-xs text-zinc-400">Datum</div>
-            <div>{raid.dateLabel}</div>
-          </div>
-          <div className="text-sm text-zinc-300">
-            <div className="text-xs text-zinc-400">Difficulty</div>
-            <div>{raid.diffLabel}</div>
-          </div>
-          <div className="text-sm text-zinc-300">
-            <div className="text-xs text-zinc-400">Loot</div>
-            <div>{raid.lootLabel}</div>
-          </div>
-          <div className="text-sm text-zinc-300">
-            <div className="text-xs text-zinc-400">Bosses</div>
-            <div>{raid.bosses}</div>
-          </div>
-          <div className="text-sm text-zinc-300">
-            <div className="text-xs text-zinc-400">Lead</div>
-            <div>{raid.leadLabel}</div>
-          </div>
+        {/* Infozeile ohne Boxen */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <InfoItem label="Datum"      value={raid.dateLabel} />
+          <InfoItem label="Difficulty" value={raid.diffLabel} />
+          <InfoItem label="Loot"       value={raid.lootLabel} />
+          <InfoItem label="Bosses"     value={raid.bosses} />
+          <InfoItem label="Lead"       value={raid.leadLabel} />
         </div>
       </Section>
 
@@ -157,7 +181,7 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
         </div>
       </Section>
 
-      {/* Signups offen */}
+      {/* Offene Anmeldungen */}
       <Section title="Signups (offen)">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Column

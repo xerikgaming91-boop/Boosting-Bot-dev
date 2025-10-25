@@ -5,6 +5,18 @@ import { apiListRaidSignups, apiPickSignup, apiUnpickSignup } from "../../../app
 const U = (x) => String(x || "").toUpperCase();
 const L = (x) => String(x || "").toLowerCase();
 
+function fmtDate(d) {
+  if (!d) return "-";
+  const date = new Date(d);
+  return date.toLocaleString(undefined, {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function labelDiff(d) {
   const v = U(d);
   if (v === "HC") return "Heroic";
@@ -14,14 +26,10 @@ function labelDiff(d) {
 }
 function labelLoot(l) {
   const v = L(l);
-  if (v === "vip") return "VIP";
   if (v === "saved") return "Saved";
-  if (v === "unsaved") return "UnSaved";
+  if (v === "unsaved") return "Unsaved";
+  if (v === "vip") return "VIP";
   return l || "-";
-}
-function fmtDate(iso) {
-  try { const d = new Date(iso); return isNaN(d) ? "-" : d.toLocaleString(); }
-  catch { return "-"; }
 }
 function preferLeadName(raid) {
   return raid?.leadDisplayName || raid?.leadUsername || raid?.lead || "-";
@@ -30,7 +38,7 @@ function roleKey(t) {
   const v = L(t);
   if (v.startsWith("tank")) return "tanks";
   if (v.startsWith("heal")) return "heals";
-  if (v.startsWith("dps"))  return "dps";
+  if (v.startsWith("dps")) return "dps";
   if (v.startsWith("loot")) return "loot";
   return "dps";
 }
@@ -50,9 +58,8 @@ export default function useRaidDetail(raidId) {
     async function load() {
       setLoading(true);
       setErr("");
-
       try {
-        // --- RAID ---
+        // Raid
         let r = await fetch(`/api/raids/${raidId}`, {
           credentials: "include",
           cache: "no-store",
@@ -65,20 +72,20 @@ export default function useRaidDetail(raidId) {
             signal: ac.signal,
           });
         }
-        const rj = await r.json().catch(() => ({}));
-        if (!r.ok || !rj?.ok) throw new Error(rj?.error || `HTTP_${r.status}`);
-        setRaid(rj.raid || null);
+        const raidJson = await r.json();
+        if (!r.ok || !raidJson?.ok) throw new Error(raidJson?.error || `HTTP_${r.status}`);
+        setRaid(raidJson.raid || null);
 
-        // --- ME ---
-        let m = await fetch(`/api/users/me?_=${Date.now()}`, {
+        // Me
+        const meRes = await fetch(`/api/users/me`, {
           credentials: "include",
           cache: "no-store",
           signal: ac.signal,
         });
-        const mj = await m.json().catch(() => ({}));
-        if (m.ok && mj?.ok) setMe(mj.user || null);
+        const meJson = meRes.ok ? await meRes.json() : {};
+        setMe(meJson?.user || null);
 
-        // --- SIGNUPS ---
+        // Signups
         const list = await apiListRaidSignups(raidId);
         setSignups(Array.isArray(list) ? list : []);
       } catch (e) {
@@ -118,6 +125,7 @@ export default function useRaidDetail(raidId) {
     (signups || []).forEach((s) => {
       const k = roleKey(s.type);
       const picked = s.saved || U(s.status) === "PICKED";
+
       const item = {
         id: s.id,
         who: s.char?.name
@@ -125,13 +133,16 @@ export default function useRaidDetail(raidId) {
           : (s.displayName || s.userId || "-"),
         classLabel: s.char?.class || s.class || "",
         roleLabel: U(s.type || "-"),
+        itemLevel: s.char?.itemLevel ?? null, // <= NEU
         note: s.note || "",
         saved: !!picked,
         statusLabel: U(s.status || "-"),
       };
+
       if (picked) g.saved[k].push(item);
       else g.open[k].push(item);
     });
+
     return g;
   }, [signups]);
 
