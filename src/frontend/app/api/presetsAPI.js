@@ -28,6 +28,12 @@ export async function apiListPresets() {
   return Array.isArray(data?.presets) ? data.presets : [];
 }
 
+export async function apiGetPresetById(id) {
+  const data = await http(`/presets/${id}`, { method: "GET" });
+  // je nach Backend-Shape kann das Feld "preset" oder "data" heißen:
+  return data?.preset ?? data?.data ?? data ?? null;
+}
+
 export async function apiCreatePreset(payload) {
   const data = await http(`/presets`, {
     method: "POST",

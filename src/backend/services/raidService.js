@@ -12,12 +12,53 @@ const norm = (v) => String(v ?? "").trim();
 const normDiff = (v) => norm(v).toLowerCase();
 const normLoot = (v) => norm(v).toLowerCase();
 
+/**
+ * Reicht Raids mit dem Discord-Display-Namen des Leads an.
+ * Erwartet, dass prisma.user { discordId, displayName, username } besitzt.
+ */
+async function attachLeadDisplayNames(list) {
+  const ids = Array.from(
+    new Set(
+      (list || [])
+        .map((r) => (r && r.lead ? String(r.lead) : null))
+        .filter(Boolean)
+    )
+  );
+  if (ids.length === 0) return (list || []).map((r) => ({ ...r, leadDisplayName: null }));
+
+  const users = await prisma.user.findMany({
+    where: { discordId: { in: ids } },
+    select: { discordId: true, displayName: true, username: true },
+  });
+
+  const nameById = new Map(
+    users.map((u) => [String(u.discordId), u.displayName || u.username || null])
+  );
+
+  return (list || []).map((r) => ({
+    ...r,
+    leadDisplayName: r?.lead ? nameById.get(String(r.lead)) || null : null,
+  }));
+}
+
 async function list(opts = {}) {
-  return raids.findMany(opts);
+  const items = await raids.findMany(opts);
+  return attachLeadDisplayNames(items);
 }
 
 async function getById(id) {
-  return raids.findById(id);
+  const raid = await raids.findById(id);
+  if (!raid) return null;
+
+  let leadDisplayName = null;
+  if (raid.lead) {
+    const u = await prisma.user.findUnique({
+      where: { discordId: String(raid.lead) },
+      select: { displayName: true, username: true },
+    });
+    leadDisplayName = u?.displayName || u?.username || null;
+  }
+  return { ...raid, leadDisplayName };
 }
 
 /**
@@ -92,7 +133,8 @@ async function update(id, patch) {
     data.lootType = l;
   }
   if (patch.date != null) {
-    const when = patch.date instanceof Date ? patch.date : new Date(norm(patch.date));
+    const when =
+      patch.date instanceof Date ? patch.date : new Date(norm(patch.date));
     if (isNaN(when.getTime())) throw new Error("INVALID_DATE");
     data.date = when;
   }
@@ -100,7 +142,11 @@ async function update(id, patch) {
   if (patch.presetId !== undefined) data.presetId = patch.presetId ?? null;
 
   // Bosse-Logik
-  if (data.difficulty === "mythic" || raid.difficulty === "mythic" || patch.bosses != null) {
+  if (
+    data.difficulty === "mythic" ||
+    raid.difficulty === "mythic" ||
+    patch.bosses != null
+  ) {
     const diff = data.difficulty || raid.difficulty;
     if (diff === "mythic") {
       const b = patch.bosses != null ? Number(patch.bosses) : raid.bosses;
@@ -111,13 +157,17 @@ async function update(id, patch) {
     }
   }
 
-  // Titel ggf. neu generieren (wenn eine der relevanten Sachen geändert wurde)
+  // Titel ggf. neu generieren
   const needTitle =
-    data.difficulty != null || data.lootType != null || data.bosses != null || data.presetId !== undefined || patch.base != null;
+    data.difficulty != null ||
+    data.lootType != null ||
+    data.bosses != null ||
+    data.presetId !== undefined ||
+    patch.base != null;
 
   if (needTitle) {
     const base = await resolveBase({
-      base: patch.base, // optionaler Override
+      base: patch.base,
       presetId: data.presetId !== undefined ? data.presetId : raid.presetId,
     });
     const difficulty = data.difficulty || raid.difficulty;

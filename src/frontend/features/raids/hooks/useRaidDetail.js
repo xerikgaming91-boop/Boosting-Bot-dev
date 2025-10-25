@@ -1,6 +1,7 @@
 // src/frontend/features/raids/hooks/useRaidDetail.js
 import { useEffect, useMemo, useState } from "react";
 import { apiListRaidSignups, apiPickSignup, apiUnpickSignup } from "../../../app/api/signupsAPI";
+import { apiGetPresetById } from "../../../app/api/presetsAPI";
 
 const U = (x) => String(x || "").toUpperCase();
 const L = (x) => String(x || "").toLowerCase();
@@ -31,9 +32,12 @@ function labelLoot(l) {
   if (v === "vip") return "VIP";
   return l || "-";
 }
+
+// Lead-Label: DisplayName → Username → ID
 function preferLeadName(raid) {
   return raid?.leadDisplayName || raid?.leadUsername || raid?.lead || "-";
 }
+
 function roleKey(t) {
   const v = L(t);
   if (v.startsWith("tank")) return "tanks";
@@ -43,8 +47,47 @@ function roleKey(t) {
   return "dps";
 }
 
+/** Preset→Caps robust normalisieren (unterstützt mehrere Shapes) */
+function deriveCaps(preset) {
+  if (!preset) return null;
+
+  // Direkt-Felder
+  const tanks =
+    Number(preset.tanks ?? preset.tank ?? preset.maxTanks ?? 0) || 0;
+  const heals =
+    Number(preset.healers ?? preset.heals ?? preset.heal ?? preset.maxHeals ?? 0) || 0;
+  const dps =
+    Number(preset.dps ?? preset.maxDps ?? 0) || 0;
+  const loot =
+    Number(
+      preset.lootbuddies ??
+        preset.lootBuddies ??
+        preset.lootbuddy ??
+        preset.loot ??
+        preset.maxLootbuddies ??
+        0
+    ) || 0;
+
+  let caps = { tanks, heals, dps, loot };
+
+  // Rollenliste wie [{role:'tank', count:2}, ...]
+  if (Array.isArray(preset.roles)) {
+    const rmap = { ...caps };
+    preset.roles.forEach((r) => {
+      const key = roleKey(r.role || r.type);
+      const cnt = Number(r.count ?? r.max ?? r.value ?? 0) || 0;
+      rmap[key] = Math.max(rmap[key] || 0, cnt);
+    });
+    caps = rmap;
+  }
+
+  const total = (caps.tanks || 0) + (caps.heals || 0) + (caps.dps || 0) + (caps.loot || 0);
+  return { ...caps, total };
+}
+
 export default function useRaidDetail(raidId) {
   const [raid, setRaid] = useState(null);
+  const [preset, setPreset] = useState(null);
   const [signups, setSignups] = useState([]);
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -74,7 +117,19 @@ export default function useRaidDetail(raidId) {
         }
         const raidJson = await r.json();
         if (!r.ok || !raidJson?.ok) throw new Error(raidJson?.error || `HTTP_${r.status}`);
-        setRaid(raidJson.raid || null);
+        const rdata = raidJson.raid || null;
+        setRaid(rdata);
+
+        // Preset (falls vorhanden)
+        setPreset(null);
+        if (rdata?.presetId != null) {
+          try {
+            const p = await apiGetPresetById(rdata.presetId);
+            setPreset(p || null);
+          } catch {
+            setPreset(null);
+          }
+        }
 
         // Me
         const meRes = await fetch(`/api/users/me`, {
@@ -133,7 +188,7 @@ export default function useRaidDetail(raidId) {
           : (s.displayName || s.userId || "-"),
         classLabel: s.char?.class || s.class || "",
         roleLabel: U(s.type || "-"),
-        itemLevel: s.char?.itemLevel ?? null, // <= NEU
+        itemLevel: s.char?.itemLevel ?? null,
         note: s.note || "",
         saved: !!picked,
         statusLabel: U(s.status || "-"),
@@ -145,6 +200,27 @@ export default function useRaidDetail(raidId) {
 
     return g;
   }, [signups]);
+
+  // Caps & Counts
+  const caps = useMemo(() => deriveCaps(preset), [preset]);
+
+  const counts = useMemo(() => {
+    const r = {
+      tanks: grouped.saved.tanks.length,
+      heals: grouped.saved.heals.length,
+      dps: grouped.saved.dps.length,
+      loot: grouped.saved.loot.length,
+    };
+    const s = {
+      tanks: grouped.open.tanks.length,
+      heals: grouped.open.heals.length,
+      dps: grouped.open.dps.length,
+      loot: grouped.open.loot.length,
+    };
+    const rTotal = r.tanks + r.heals + r.dps + r.loot;
+    const sTotal = s.tanks + s.heals + s.dps + s.loot;
+    return { roster: { ...r, total: rTotal }, signups: { ...s, total: sTotal } };
+  }, [grouped]);
 
   async function pick(id) {
     if (!id) return;
@@ -158,7 +234,11 @@ export default function useRaidDetail(raidId) {
       console.error("pick failed", e);
       setErr(e?.message || "PICK_FAILED");
     } finally {
-      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      setBusyIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
   }
 
@@ -174,9 +254,24 @@ export default function useRaidDetail(raidId) {
       console.error("unpick failed", e);
       setErr(e?.message || "UNPICK_FAILED");
     } finally {
-      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      setBusyIds((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
   }
 
-  return { raid: raidView, grouped, canManage, loading, error, pick, unpick, busyIds };
+  return {
+    raid: raidView,
+    grouped,
+    caps,
+    counts,
+    canManage,
+    loading,
+    error,
+    pick,
+    unpick,
+    busyIds,
+  };
 }

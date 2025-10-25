@@ -1,11 +1,12 @@
 // src/backend/controllers/raidsController.js
 /**
- * Raids Controller (nur CRUD, KEIN Signup/Pick)
- * - nutzt src/backend/models/raidModel.js
- * - Discord-Bot Sync nach create/update
+ * Raids Controller (CRUD ohne Signup/Pick)
+ * - Reads laufen über Service (liefert leadDisplayName)
+ * - Writes nutzen direkt das Model + Discord-Sync
  */
 
-const raids = require("../models/raidModel");
+const raidService = require("../services/raidService.js");
+const raids = require("../models/raidModel.js");
 
 // ✨ Cycle-Window (Mi 08:00 → Mi 07:00)
 const { getCurrentCycleWindow, getNextCycleWindow } = require("../utils/cycleWindow");
@@ -58,7 +59,7 @@ function buildAutoTitle({ instance = DEFAULT_INSTANCE, difficulty = "Heroic", lo
 /** GET /api/raids */
 async function list(_req, res) {
   try {
-    const rows = await raids.findMany({ orderBy: [{ date: "asc" }, { id: "asc" }] });
+    const rows = await raidService.list({ orderBy: [{ date: "asc" }, { id: "asc" }] });
     return res.json({ ok: true, raids: rows });
   } catch (e) {
     console.error("[raids/list]", e);
@@ -73,7 +74,7 @@ async function getOne(req, res) {
     if (!Number.isFinite(id)) {
       return res.status(400).json({ ok: false, error: "INVALID_ID", message: "Ungültige Raid-ID." });
     }
-    const raid = await raids.findOne(id);
+    const raid = await raidService.getById(id);
     if (!raid) return res.status(404).json({ ok: false, error: "NOT_FOUND", message: "Raid wurde nicht gefunden." });
     return res.json({ ok: true, raid });
   } catch (e) {
@@ -182,22 +183,6 @@ async function update(req, res) {
         return res.status(400).json({ ok: false, error: "INVALID_DATE", message: "Ungültiges Datum." });
       }
       patch.date = d;
-      // Optional: Wenn du auch bei Updates den Cycle erzwingen willst, hier einhängen:
-      // const now = new Date();
-      // const { start: curStart } = getCurrentCycleWindow(now);
-      // const { end: nextEnd } = getNextCycleWindow(now);
-      // if (d < curStart || d >= nextEnd) {
-      //   return res.status(400).json({
-      //     ok: false,
-      //     error: "DATE_OUTSIDE_ALLOWED_CYCLES",
-      //     message: "Datum liegt außerhalb des erlaubten Fensters. Erlaubt sind nur Termine im aktuellen oder im nächsten Cycle.",
-      //     bounds: {
-      //       currentCycleStart: curStart.toISOString(),
-      //       currentCycleEnd:   curEnd.toISOString(),
-      //       nextCycleEnd:      nextEnd.toISOString(),
-      //     },
-      //   });
-      // }
     }
 
     if (p.bosses != null) {

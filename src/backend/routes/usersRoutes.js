@@ -1,22 +1,16 @@
 // src/backend/routes/usersRoutes.js
-// CommonJS-Router – wird von deinem Auto-Mount unter /api registriert
+// Mount: /api/users
 
 const express = require("express");
 const router = express.Router();
 
-// Pfade RELATIV zum routes/-Ordner:
-const { attachUser } = require("../middlewares/auth.js");
-const ctrlRaw = require("../controllers/usersController.js");
+const ctrl = require("../controllers/usersController.js");
 
-// Fallback, falls der Controller versehentlich als ESM default exportiert wurde:
-const ctrl = ctrlRaw && ctrlRaw.default ? ctrlRaw.default : ctrlRaw;
+// /me: immer erreichbar – liefert user=null, wenn nicht eingeloggt
+router.get("/me", ctrl.getMe);
 
-// Session-User an req hängen (damit /me funktioniert)
-router.use(attachUser);
-
-// Endpunkte
-router.get("/me", ctrl.me);        // → { ok:true, user: {...} | null }
-router.get("/leads", ctrl.leads);  // → { ok:true, leads: [...] }
+// Leads-Liste (öffentlich oder hinter Auth; bei Bedarf hier absichern)
+router.get("/leads", ctrl.listLeads);
 
 module.exports = {
   basePath: "/users",

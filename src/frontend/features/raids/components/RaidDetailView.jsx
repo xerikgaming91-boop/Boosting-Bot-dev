@@ -15,7 +15,6 @@ function Section({ title, children, right }) {
 }
 
 function InfoItem({ label, value }) {
-  // Schlank: keine Box, nur Label + Wert
   return (
     <div className="py-2">
       <div className="text-xs text-zinc-400">{label}</div>
@@ -24,10 +23,12 @@ function InfoItem({ label, value }) {
   );
 }
 
-function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) {
+function Column({ title, suffix, items, canManage, onPick, onUnpick, busyIds, picked }) {
   return (
     <div>
-      <div className="mb-2 text-xs font-medium text-zinc-400">{title}</div>
+      <div className="mb-2 text-xs font-medium text-zinc-400">
+        {title} {suffix ? <span className="text-zinc-500">({suffix})</span> : null}
+      </div>
       <div className="space-y-2">
         {items.length === 0 ? (
           <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-500">
@@ -82,13 +83,13 @@ function Column({ title, items, canManage, onPick, onUnpick, busyIds, picked }) 
 
 /**
  * Props:
- * - raid: { title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
+ * - raid: { id, title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
  * - grouped: { saved: {tanks,heals,dps,loot}, open: {tanks,heals,dps,loot} }
- * - canManage: boolean
- * - pick(id), unpick(id)
- * - busyIds: Set<number>
+ * - caps: { tanks,heals,dps,loot,total } | null
+ * - counts: { roster:{... , total}, signups:{... , total} }
+ * - canManage, pick(id), unpick(id), busyIds
  */
-export default function RaidDetailView({ raid, grouped, canManage, pick, unpick, busyIds }) {
+export default function RaidDetailView({ raid, grouped, caps, counts, canManage, pick, unpick, busyIds }) {
   if (!raid) {
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">
@@ -97,31 +98,27 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
     );
   }
 
-  const rosterCount =
-    (grouped?.saved?.tanks?.length || 0) +
-    (grouped?.saved?.heals?.length || 0) +
-    (grouped?.saved?.dps?.length || 0) +
-    (grouped?.saved?.loot?.length || 0);
-
-  const signupsCount =
-    (grouped?.open?.tanks?.length || 0) +
-    (grouped?.open?.heals?.length || 0) +
-    (grouped?.open?.dps?.length || 0) +
-    (grouped?.open?.loot?.length || 0);
+  const rosterTotal = counts?.roster?.total || 0;
+  const signupsTotal = counts?.signups?.total || 0;
+  const capTotal = caps?.total || null;
 
   return (
     <div className="space-y-4">
-      {/* Header wie in deinem Screenshot: Titel links, rechts Zähler + Zurück */}
+      {/* Kopfbereich: Titel links, rechts Gesamtsummen + Zurück */}
       <Section
         title={raid.title}
         right={
           <div className="flex items-center gap-3">
             <div className="text-xs text-zinc-400">
               <span className="mr-3">
-                Roster: <b className="text-zinc-100">{rosterCount}</b>
+                Roster:{" "}
+                <b className="text-zinc-100">
+                  {rosterTotal}
+                  {capTotal != null ? ` / ${capTotal}` : ""}
+                </b>
               </span>
               <span>
-                Signups: <b className="text-zinc-100">{signupsCount}</b>
+                Signups: <b className="text-zinc-100">{signupsTotal}</b>
               </span>
             </div>
             <Link
@@ -148,6 +145,9 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Column
             title="🛡️ Tanks"
+            suffix={
+              caps ? `${counts?.roster?.tanks || 0} / ${caps.tanks || 0}` : `${counts?.roster?.tanks || 0}`
+            }
             items={grouped?.saved?.tanks || []}
             picked
             canManage={canManage}
@@ -156,6 +156,9 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
           />
           <Column
             title="💚 Healers"
+            suffix={
+              caps ? `${counts?.roster?.heals || 0} / ${caps.heals || 0}` : `${counts?.roster?.heals || 0}`
+            }
             items={grouped?.saved?.heals || []}
             picked
             canManage={canManage}
@@ -164,6 +167,9 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
           />
           <Column
             title="🗡️ DPS"
+            suffix={
+              caps ? `${counts?.roster?.dps || 0} / ${caps.dps || 0}` : `${counts?.roster?.dps || 0}`
+            }
             items={grouped?.saved?.dps || []}
             picked
             canManage={canManage}
@@ -172,6 +178,9 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
           />
           <Column
             title="🍀 Lootbuddies"
+            suffix={
+              caps ? `${counts?.roster?.loot || 0} / ${caps.loot || 0}` : `${counts?.roster?.loot || 0}`
+            }
             items={grouped?.saved?.loot || []}
             picked
             canManage={canManage}
@@ -186,6 +195,7 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Column
             title="🛡️ Tanks"
+            suffix={`${counts?.signups?.tanks || 0}`}
             items={grouped?.open?.tanks || []}
             canManage={canManage}
             onPick={pick}
@@ -193,6 +203,7 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
           />
           <Column
             title="💚 Healers"
+            suffix={`${counts?.signups?.heals || 0}`}
             items={grouped?.open?.heals || []}
             canManage={canManage}
             onPick={pick}
@@ -200,6 +211,7 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
           />
           <Column
             title="🗡️ DPS"
+            suffix={`${counts?.signups?.dps || 0}`}
             items={grouped?.open?.dps || []}
             canManage={canManage}
             onPick={pick}
@@ -207,6 +219,7 @@ export default function RaidDetailView({ raid, grouped, canManage, pick, unpick,
           />
           <Column
             title="🍀 Lootbuddies"
+            suffix={`${counts?.signups?.loot || 0}`}
             items={grouped?.open?.loot || []}
             canManage={canManage}
             onPick={pick}

@@ -1,53 +1,57 @@
 // src/backend/controllers/authController.js
-const svc = require("../services/authService.js");
+// Thinner Controller, delegiert an services/authService
 
-function sessionCookieName(req) {
-  // express-session default
-  return process.env.SESSION_NAME || (req?.session?.cookie?.name || "connect.sid");
-}
+const authService = require("../services/authService.js");
 
-async function start(req, res) {
+/** GET /api/auth/login (oder /api/auth/discord/login) */
+async function start(_req, res) {
   try {
-    const url = svc.getAuthorizeUrl(req.query.state || "");
+    const url = authService.getAuthorizeUrl();
     return res.redirect(302, url);
   } catch (e) {
     console.error("[auth/start] error:", e);
-    return res.status(500).send("oauth_start_failed");
+    const back = authService.FRONTEND_URL || "/";
+    return res.redirect(302, `${back}?oauth=failed`);
   }
 }
 
+/** GET /api/auth/callback?code=... */
 async function callback(req, res) {
-  const code = req.query.code;
-  if (!code) return res.status(400).send("missing_code");
-
   try {
-    const user = await svc.loginWithCode(code);
+    const code = req.query?.code;
+    if (!code) {
+      const back = authService.FRONTEND_URL || "/";
+      return res.redirect(302, `${back}?oauth=missing_code`);
+    }
+
+    const { user } = await authService.loginWithCode(code);
+
+    // Session setzen
     req.session.user = user;
 
-    const wantsJson =
-      (req.headers.accept || "").includes("application/json") || req.query.raw === "1";
-    if (wantsJson) return res.json({ ok: true, user });
-
-    return res.redirect(302, svc.FRONTEND_URL);
+    // zurück zur App
+    const back = authService.FRONTEND_URL || "/";
+    return res.redirect(302, back);
   } catch (e) {
     console.error("[auth/callback] error:", e);
-    return res.status(500).send("oauth_failed");
+    const back = authService.FRONTEND_URL || "/";
+    return res.redirect(302, `${back}?oauth=failed`);
   }
 }
 
+/** GET/POST /api/auth/logout */
+async function logout(req, res) {
+  try {
+    req.session?.destroy?.(() => {});
+  } catch {}
+  const back = authService.FRONTEND_URL || "/";
+  return res.redirect(302, back);
+}
+
+/** GET /api/auth/session – schlanker Session-Check */
 async function session(req, res) {
-  await svc.ensureFreshSession(req);
-  return res.json({ ok: true, user: req.session?.user || null });
+  const u = req?.session?.user || null;
+  return res.json({ ok: true, user: u });
 }
 
-function logout(req, res) {
-  const name = sessionCookieName(req);
-  req.session.destroy(() => {
-    try {
-      res.clearCookie(name);
-    } catch (_) {}
-    res.json({ ok: true });
-  });
-}
-
-module.exports = { start, callback, session, logout };
+module.exports = { start, callback, logout, session };

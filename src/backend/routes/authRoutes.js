@@ -3,8 +3,7 @@ const express = require("express");
 const router = express.Router();
 
 const { attachUser } = require("../middlewares/auth.js");
-const ctrlRaw = require("../controllers/authController.js");
-const ctrl = ctrlRaw && ctrlRaw.default ? ctrlRaw.default : ctrlRaw;
+const ctrl = require("../controllers/authController.js");
 
 function noCache(_req, res, next) {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -16,14 +15,18 @@ function noCache(_req, res, next) {
 
 router.use(attachUser);
 
+// ✅ beide Login-Pfade bedienen
 router.get("/login", noCache, ctrl.start);
+router.get("/discord/login", noCache, ctrl.start);
 router.get("/discord", noCache, ctrl.start);
 
+// Callback von Discord
 router.get("/callback", ctrl.callback);
 
+// Session-Check
 router.get("/session", noCache, ctrl.session);
 
-// Logout: sowohl GET als auch POST anbieten
+// Logout als GET und POST anbieten
 router.get("/logout", ctrl.logout);
 router.post("/logout", ctrl.logout);
 
