@@ -92,7 +92,7 @@ export default function RaidCreateForm({ me, leads = [], canPickLead = false, on
             <option key={p.id} value={p.id}>
               {p.name ?? `Preset #${p.id}`}
               {typeof p.tanks === "number" || typeof p.heals === "number" || typeof p.dps === "number" || typeof p.loot === "number"
-                ? `  (T${p.tanks ?? 0}/H${p.heals ?? 0}/D${p.dps ?? 0}/L${p.loot ?? 0})`
+                ? `  (${p.tanks ?? 0}/${p.heals ?? 0}/${p.dps ?? 0}/${p.loot ?? 0})`
                 : ""}
             </option>
           ))}
