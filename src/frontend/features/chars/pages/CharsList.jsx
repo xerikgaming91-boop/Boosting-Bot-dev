@@ -4,14 +4,29 @@ import useMyChars from "../hooks/useMyChars";
 import CharImportForm from "../components/CharImportForm";
 
 export default function CharsList() {
-  const { chars, loading, error, preview, importChar, removeChar } = useMyChars();
+  const {
+    chars, loading, error,
+    preview, importChar, removeChar,
+    refreshCharNow, refreshAllStale,
+  } = useMyChars();
 
   const errText = error?.message || error;
   const is401 = Number(error?.status) === 401;
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-zinc-100">Meine Chars</h1>
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">Meine Chars</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => refreshAllStale(20)}
+            className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-300 hover:bg-sky-500/20"
+            title="Admin-Endpoint: aktualisiert veraltete Chars (Limit 20)"
+          >
+            Alle veralteten aktualisieren
+          </button>
+        </div>
+      </div>
 
       {is401 ? (
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
@@ -62,7 +77,14 @@ export default function CharsList() {
                           <td className="px-4 py-2">{c.itemLevel ?? "–"}</td>
                           <td className="px-4 py-2">{c.rioScore ?? "–"}</td>
                           <td className="px-4 py-2">{c.progress || "–"}</td>
-                          <td className="px-4 py-2">
+                          <td className="px-4 py-2 space-x-2">
+                            <button
+                              onClick={() => refreshCharNow(c.id)}
+                              className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/20"
+                              title="Jetzt von Raider.IO aktualisieren"
+                            >
+                              Aktualisieren
+                            </button>
                             <button
                               onClick={() => removeChar(c.id)}
                               className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"

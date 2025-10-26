@@ -47,3 +47,16 @@ export async function apiDeleteChar(id) {
   await http(`/chars/${id}`, { method: "DELETE" });
   return true;
 }
+
+/* ---- NEW: Refresh ---- */
+export async function apiRefreshChar(id) {
+  const data = await http(`/chars/${id}/refresh`, { method: "POST" });
+  return data?.char || null;
+}
+
+export async function apiRefreshStale(limit) {
+  const q = new URLSearchParams();
+  if (limit != null) q.set("limit", String(limit));
+  const data = await http(`/chars/refresh/stale?${q.toString()}`, { method: "POST" });
+  return Array.isArray(data?.results) ? data.results : [];
+}
