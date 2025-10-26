@@ -81,15 +81,37 @@ function Column({ title, suffix, items, canManage, onPick, onUnpick, busyIds, pi
   );
 }
 
+/* ----------------------- Checklist UI ----------------------- */
+function StatRow({ count, label }) {
+  return (
+    <div className="flex items-center gap-2 text-sm leading-6">
+      <span className="w-6 text-emerald-400 font-medium tabular-nums">{count || 0}×</span>
+      <span className="text-zinc-200">{label}</span>
+    </div>
+  );
+}
+function ChecklistCard({ title, items = [] }) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
+      <div className="mb-3 text-sm font-semibold text-zinc-200">{title}</div>
+      <div className="space-y-1.5">
+        {items.map((it) => (
+          <StatRow key={it.key || it.label} count={it.count} label={it.label} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Props:
- * - raid: { id, title, dateLabel, diffLabel, lootLabel, bosses, leadLabel }
- * - grouped: { saved: {tanks,heals,dps,loot}, open: {tanks,heals,dps,loot} }
- * - caps: { tanks,heals,dps,loot,total } | null
- * - counts: { roster:{... , total}, signups:{... , total} }
- * - canManage, pick(id), unpick(id), busyIds
+ * - raid, grouped, caps, counts
+ * - checklist: { classes:[{label,count}], buffs:[...], utils:[...] }
+ * - canManage, pick, unpick, busyIds
  */
-export default function RaidDetailView({ raid, grouped, caps, counts, canManage, pick, unpick, busyIds }) {
+export default function RaidDetailView({
+  raid, grouped, caps, counts, checklist, canManage, pick, unpick, busyIds,
+}) {
   if (!raid) {
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">
@@ -104,7 +126,7 @@ export default function RaidDetailView({ raid, grouped, caps, counts, canManage,
 
   return (
     <div className="space-y-4">
-      {/* Kopfbereich: Titel links, rechts Gesamtsummen + Zurück */}
+      {/* Kopf */}
       <Section
         title={raid.title}
         right={
@@ -130,7 +152,6 @@ export default function RaidDetailView({ raid, grouped, caps, counts, canManage,
           </div>
         }
       >
-        {/* Infozeile ohne Boxen */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <InfoItem label="Datum"      value={raid.dateLabel} />
           <InfoItem label="Difficulty" value={raid.diffLabel} />
@@ -145,9 +166,7 @@ export default function RaidDetailView({ raid, grouped, caps, counts, canManage,
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Column
             title="🛡️ Tanks"
-            suffix={
-              caps ? `${counts?.roster?.tanks || 0} / ${caps.tanks || 0}` : `${counts?.roster?.tanks || 0}`
-            }
+            suffix={caps ? `${counts?.roster?.tanks || 0} / ${caps.tanks || 0}` : `${counts?.roster?.tanks || 0}`}
             items={grouped?.saved?.tanks || []}
             picked
             canManage={canManage}
@@ -156,9 +175,7 @@ export default function RaidDetailView({ raid, grouped, caps, counts, canManage,
           />
           <Column
             title="💚 Healers"
-            suffix={
-              caps ? `${counts?.roster?.heals || 0} / ${caps.heals || 0}` : `${counts?.roster?.heals || 0}`
-            }
+            suffix={caps ? `${counts?.roster?.heals || 0} / ${caps.heals || 0}` : `${counts?.roster?.heals || 0}`}
             items={grouped?.saved?.heals || []}
             picked
             canManage={canManage}
@@ -167,9 +184,7 @@ export default function RaidDetailView({ raid, grouped, caps, counts, canManage,
           />
           <Column
             title="🗡️ DPS"
-            suffix={
-              caps ? `${counts?.roster?.dps || 0} / ${caps.dps || 0}` : `${counts?.roster?.dps || 0}`
-            }
+            suffix={caps ? `${counts?.roster?.dps || 0} / ${caps.dps || 0}` : `${counts?.roster?.dps || 0}`}
             items={grouped?.saved?.dps || []}
             picked
             canManage={canManage}
@@ -178,9 +193,7 @@ export default function RaidDetailView({ raid, grouped, caps, counts, canManage,
           />
           <Column
             title="🍀 Lootbuddies"
-            suffix={
-              caps ? `${counts?.roster?.loot || 0} / ${caps.loot || 0}` : `${counts?.roster?.loot || 0}`
-            }
+            suffix={caps ? `${counts?.roster?.loot || 0} / ${caps.loot || 0}` : `${counts?.roster?.loot || 0}`}
             items={grouped?.saved?.loot || []}
             picked
             canManage={canManage}
@@ -190,7 +203,7 @@ export default function RaidDetailView({ raid, grouped, caps, counts, canManage,
         </div>
       </Section>
 
-      {/* Offene Anmeldungen */}
+      {/* Signups */}
       <Section title="Signups (offen)">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Column
@@ -225,6 +238,15 @@ export default function RaidDetailView({ raid, grouped, caps, counts, canManage,
             onPick={pick}
             busyIds={busyIds}
           />
+        </div>
+      </Section>
+
+      {/* ✅ Checklist */}
+      <Section title="Checklist">
+        <div className="grid gap-4 lg:grid-cols-3">
+          <ChecklistCard title="Classes" items={checklist?.classes || []} />
+          <ChecklistCard title="Buffs / Debuffs" items={checklist?.buffs || []} />
+          <ChecklistCard title="Utility" items={checklist?.utils || []} />
         </div>
       </Section>
     </div>

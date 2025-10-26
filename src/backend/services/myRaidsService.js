@@ -1,14 +1,6 @@
 // src/backend/services/myRaidsService.js
-/**
- * Service-Layer für "My Raids"
- * - Liefert für einen User (Discord-ID) seine kommenden / vergangenen Raids,
- *   getrennt nach: rostered (PICKED) und signups (SIGNUPED).
- * - Nutzt Prisma direkt für performante Includes/Sortierung.
- */
-
 const { prisma } = require("../prismaClient.js");
 
-/** Minimal-Mapper für Raid-Objekt (einheitlicher Shape im Frontend) */
 function mapRaid(r) {
   if (!r) return null;
   return {
@@ -22,11 +14,9 @@ function mapRaid(r) {
     channelId: r.channelId ?? null,
     messageId: r.messageId ?? null,
     presetId: r.presetId ?? null,
-    detailUrl: `/raids/${r.id}`,
   };
 }
 
-/** Mapper für Signup + Char + Raid */
 function mapEntry(row) {
   return {
     raid: mapRaid(row.raid),
@@ -34,8 +24,8 @@ function mapEntry(row) {
       id: row.id,
       raidId: row.raidId,
       userId: row.userId ?? row.user?.discordId ?? null,
-      status: row.status, // SIGNUPED | PICKED
-      type: row.type,     // TANK | HEAL | DPS | LOOTBUDDY
+      status: row.status,     // z.B. "PICKED", "SIGNUPED"
+      type: row.type,         // "TANK" | "HEAL" | "DPS" | "LOOTBUDDY"
       saved: !!row.saved,
       note: row.note ?? null,
       displayName: row.displayName ?? row.user?.displayName ?? row.user?.username ?? null,
@@ -57,40 +47,34 @@ function mapEntry(row) {
   };
 }
 
-/**
- * Liefert strukturierte Daten für My-Raids.
- * scope: "upcoming" (default) | "all"
- */
-exports.getForUser = async (userId, { scope = "upcoming" } = {}) => {
+exports.getForUser = async (discordId) => {
   const now = new Date();
+  const id = String(discordId);
 
-  // Signups inklusive Char+Raid+User laden (einmalig)
+  // robust: match entweder signup.userId oder verknüpfter user.discordId
   const rows = await prisma.signup.findMany({
-    where: { userId: String(userId) },
+    where: {
+      OR: [{ userId: id }, { user: { discordId: id } }],
+    },
     include: {
       raid: true,
       char: true,
-      user: {
-        select: { discordId: true, displayName: true, username: true },
-      },
+      user: { select: { discordId: true, displayName: true, username: true } },
     },
-    orderBy: [
-      { raid: { date: "asc" } }, // für "upcoming" nützlich; wir sortieren unten ggf. je Bucket anders
-      { id: "asc" },
-    ],
+    orderBy: [{ raid: { date: "asc" } }, { id: "asc" }],
   });
 
   const upcoming = { rostered: [], signups: [] };
   const past = { rostered: [], signups: [] };
 
   for (const row of rows) {
-    const bucket = row.raid?.date && row.raid.date > now ? upcoming : past;
-    const isRoster = String(row.status).toUpperCase() === "PICKED";
-    if (isRoster) bucket.rostered.push(mapEntry(row));
-    else bucket.signups.push(mapEntry(row));
+    if (!row.raid || !row.raid.date) continue;
+    const entry = mapEntry(row);
+    const target = row.raid.date > now ? upcoming : past;
+    if (row.status === "PICKED") target.rostered.push(entry);
+    else target.signups.push(entry);
   }
 
-  // Sortierungen (upcoming aufsteigend, past absteigend)
   const byDateAsc = (a, b) => new Date(a.raid.date) - new Date(b.raid.date);
   const byDateDesc = (a, b) => new Date(b.raid.date) - new Date(a.raid.date);
 
@@ -99,8 +83,5 @@ exports.getForUser = async (userId, { scope = "upcoming" } = {}) => {
   past.rostered.sort(byDateDesc);
   past.signups.sort(byDateDesc);
 
-  if (scope === "all") {
-    return { upcoming, past };
-  }
-  return { upcoming };
+  return { upcoming, past };
 };

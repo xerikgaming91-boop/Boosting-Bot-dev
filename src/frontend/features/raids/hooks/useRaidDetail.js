@@ -6,6 +6,7 @@ import { apiGetPresetById } from "../../../app/api/presetsAPI";
 const U = (x) => String(x || "").toUpperCase();
 const L = (x) => String(x || "").toLowerCase();
 
+/* ---------- Label-Helper ---------- */
 function fmtDate(d) {
   if (!d) return "-";
   const date = new Date(d);
@@ -17,7 +18,6 @@ function fmtDate(d) {
     minute: "2-digit",
   });
 }
-
 function labelDiff(d) {
   const v = U(d);
   if (v === "HC") return "Heroic";
@@ -33,11 +33,12 @@ function labelLoot(l) {
   return l || "-";
 }
 
-// Lead-Label: DisplayName → Username → ID
+/* ---------- Lead-Label ---------- */
 function preferLeadName(raid) {
   return raid?.leadDisplayName || raid?.leadUsername || raid?.lead || "-";
 }
 
+/* ---------- Role key ---------- */
 function roleKey(t) {
   const v = L(t);
   if (v.startsWith("tank")) return "tanks";
@@ -47,30 +48,14 @@ function roleKey(t) {
   return "dps";
 }
 
-/** Preset→Caps robust normalisieren (unterstützt mehrere Shapes) */
+/* ---------- Preset->Caps ---------- */
 function deriveCaps(preset) {
   if (!preset) return null;
-
-  // Direkt-Felder
-  const tanks =
-    Number(preset.tanks ?? preset.tank ?? preset.maxTanks ?? 0) || 0;
-  const heals =
-    Number(preset.healers ?? preset.heals ?? preset.heal ?? preset.maxHeals ?? 0) || 0;
-  const dps =
-    Number(preset.dps ?? preset.maxDps ?? 0) || 0;
-  const loot =
-    Number(
-      preset.lootbuddies ??
-        preset.lootBuddies ??
-        preset.lootbuddy ??
-        preset.loot ??
-        preset.maxLootbuddies ??
-        0
-    ) || 0;
-
+  const tanks = Number(preset.tanks ?? preset.tank ?? preset.maxTanks ?? 0) || 0;
+  const heals = Number(preset.healers ?? preset.heals ?? preset.heal ?? preset.maxHeals ?? 0) || 0;
+  const dps   = Number(preset.dps ?? preset.maxDps ?? 0) || 0;
+  const loot  = Number(preset.lootbuddies ?? preset.lootBuddies ?? preset.lootbuddy ?? preset.loot ?? preset.maxLootbuddies ?? 0) || 0;
   let caps = { tanks, heals, dps, loot };
-
-  // Rollenliste wie [{role:'tank', count:2}, ...]
   if (Array.isArray(preset.roles)) {
     const rmap = { ...caps };
     preset.roles.forEach((r) => {
@@ -80,19 +65,90 @@ function deriveCaps(preset) {
     });
     caps = rmap;
   }
-
   const total = (caps.tanks || 0) + (caps.heals || 0) + (caps.dps || 0) + (caps.loot || 0);
   return { ...caps, total };
 }
 
+/* ---------- Klassen-Normalisierung ---------- */
+const CLASS_ORDER = [
+  "Priest","Mage","Warlock","Druid","Rogue","Monk","Demon Hunter",
+  "Hunter","Shaman","Evoker","Death Knight","Paladin","Warrior",
+];
+function normalizeClassName(raw) {
+  const s = L(raw);
+  if (s.includes("death") && s.includes("knight")) return "Death Knight";
+  if (s.includes("demon") && s.includes("hunter")) return "Demon Hunter";
+  const map = {
+    priest: "Priest", mage: "Mage", warlock: "Warlock", druid: "Druid", rogue: "Rogue",
+    monk: "Monk", hunter: "Hunter", shaman: "Shaman", evoker: "Evoker",
+    paladin: "Paladin", warrior: "Warrior",
+  };
+  return map[s] || (raw ? String(raw) : "Unknown");
+}
+
+/* ---------- Buff/Utility Mapping ---------- */
+const BUFF_DEFS = [
+  { key: "INT",  label: "5% Intellect",        providers: ["Mage"] },
+  { key: "AP",   label: "5% Attack Power",     providers: ["Warrior"] },
+  { key: "STA",  label: "5% Stamina",          providers: ["Priest"] },
+  { key: "PDMG", label: "5% Physical Damage",  providers: ["Monk"] },
+  { key: "MDMG", label: "5% Magic Damage",     providers: ["Demon Hunter"] },
+  { key: "DEVO", label: "Devotion Aura",       providers: ["Paladin"] },
+  { key: "VERS", label: "3% Versatility",      providers: ["Druid"] },
+  { key: "DR",   label: "3% Damage Reduction", providers: ["Paladin"] },
+  { key: "HMARK",label: "Hunter's Mark",       providers: ["Hunter"] },
+  { key: "SKYF", label: "Skyfury",             providers: ["Shaman"] },
+];
+const UTIL_DEFS = [
+  { key: "LUST", label: "Bloodlust",               providers: ["Shaman","Mage","Evoker","Hunter"] },
+  { key: "BREZ", label: "Combat Resurrection",     providers: ["Druid","Warlock","Death Knight"] },
+  { key: "SPEED",label: "Movement Speed",          providers: ["Druid"] },
+  { key: "HS",   label: "Healthstone",             providers: ["Warlock"] },
+  { key: "GATE", label: "Gateway",                 providers: ["Warlock"] },
+  { key: "INN",  label: "Innervate",               providers: ["Druid"] },
+  { key: "AMZ",  label: "Anti Magic Zone",         providers: ["Death Knight"] },
+  { key: "BOP",  label: "Blessing of Protection",  providers: ["Paladin"] },
+  { key: "RALLY",label: "Rallying Cry",            providers: ["Warrior"] },
+  { key: "DARK", label: "Darkness",                providers: ["Demon Hunter"] },
+  { key: "IMM",  label: "Immunity",                providers: ["Paladin","Mage","Hunter"] },
+];
+
+/* ---------- Checklist aus Roster (PICKED) ---------- */
+function buildChecklistFromRoster(rosterItems) {
+  const classCounts = {};
+  CLASS_ORDER.forEach((c) => (classCounts[c] = 0));
+  for (const it of rosterItems) {
+    const cls = normalizeClassName(it.classLabel || it.class || "");
+    if (classCounts[cls] == null) classCounts[cls] = 0;
+    classCounts[cls] += 1;
+  }
+  const classes = CLASS_ORDER.map((c) => ({ key: c, label: c, count: classCounts[c] || 0 }));
+  const buffs = BUFF_DEFS.map((b) => ({
+    key: b.key, label: b.label,
+    count: b.providers.reduce((acc, p) => acc + (classCounts[p] || 0), 0),
+  }));
+  const utils = UTIL_DEFS.map((u) => ({
+    key: u.key, label: u.label,
+    count: u.providers.reduce((acc, p) => acc + (classCounts[p] || 0), 0),
+  }));
+  return { classes, buffs, utils };
+}
+
+/* ======================================================================= */
 export default function useRaidDetail(raidId) {
   const [raid, setRaid] = useState(null);
   const [preset, setPreset] = useState(null);
   const [signups, setSignups] = useState([]);
+
+  // ⬇️ getrennte Fehlerzustände:
+  const [loadError, setLoadError] = useState("");     // nur für initiales Laden
+  const [actionError, setActionError] = useState(""); // für Pick/Unpick etc.
+
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setErr] = useState("");
   const [busyIds, setBusyIds] = useState(() => new Set());
+
+  function clearActionError() { setActionError(""); }
 
   useEffect(() => {
     if (!raidId || Number.isNaN(raidId)) return;
@@ -100,7 +156,7 @@ export default function useRaidDetail(raidId) {
 
     async function load() {
       setLoading(true);
-      setErr("");
+      setLoadError("");
       try {
         // Raid
         let r = await fetch(`/api/raids/${raidId}`, {
@@ -120,15 +176,11 @@ export default function useRaidDetail(raidId) {
         const rdata = raidJson.raid || null;
         setRaid(rdata);
 
-        // Preset (falls vorhanden)
+        // Preset
         setPreset(null);
         if (rdata?.presetId != null) {
-          try {
-            const p = await apiGetPresetById(rdata.presetId);
-            setPreset(p || null);
-          } catch {
-            setPreset(null);
-          }
+          try { setPreset((await apiGetPresetById(rdata.presetId)) || null); }
+          catch { setPreset(null); }
         }
 
         // Me
@@ -144,7 +196,7 @@ export default function useRaidDetail(raidId) {
         const list = await apiListRaidSignups(raidId);
         setSignups(Array.isArray(list) ? list : []);
       } catch (e) {
-        if (!ac.signal.aborted) setErr(e?.message || "LOAD_FAILED");
+        if (!ac.signal.aborted) setLoadError(e?.message || "LOAD_FAILED");
       } finally {
         if (!ac.signal.aborted) setLoading(false);
       }
@@ -176,11 +228,9 @@ export default function useRaidDetail(raidId) {
   const grouped = useMemo(() => {
     const base = () => ({ tanks: [], heals: [], dps: [], loot: [] });
     const g = { saved: base(), open: base() };
-
     (signups || []).forEach((s) => {
       const k = roleKey(s.type);
       const picked = s.saved || U(s.status) === "PICKED";
-
       const item = {
         id: s.id,
         who: s.char?.name
@@ -193,17 +243,14 @@ export default function useRaidDetail(raidId) {
         saved: !!picked,
         statusLabel: U(s.status || "-"),
       };
-
       if (picked) g.saved[k].push(item);
       else g.open[k].push(item);
     });
-
     return g;
   }, [signups]);
 
   // Caps & Counts
   const caps = useMemo(() => deriveCaps(preset), [preset]);
-
   const counts = useMemo(() => {
     const r = {
       tanks: grouped.saved.tanks.length,
@@ -222,8 +269,21 @@ export default function useRaidDetail(raidId) {
     return { roster: { ...r, total: rTotal }, signups: { ...s, total: sTotal } };
   }, [grouped]);
 
+  // Checklist (nur Roster / PICKED)
+  const checklist = useMemo(() => {
+    const rosterItems = [
+      ...(grouped?.saved?.tanks || []),
+      ...(grouped?.saved?.heals || []),
+      ...(grouped?.saved?.dps || []),
+      ...(grouped?.saved?.loot || []),
+    ];
+    return buildChecklistFromRoster(rosterItems);
+  }, [grouped]);
+
+  // Aktionen
   async function pick(id) {
     if (!id) return;
+    setActionError("");
     setBusyIds((s) => new Set([...s, id]));
     try {
       await apiPickSignup(id);
@@ -231,19 +291,14 @@ export default function useRaidDetail(raidId) {
         prev.map((s) => (s.id === id ? { ...s, status: "PICKED", saved: true } : s))
       );
     } catch (e) {
-      console.error("pick failed", e);
-      setErr(e?.message || "PICK_FAILED");
+      setActionError(e?.message || "PICK_FAILED");
     } finally {
-      setBusyIds((s) => {
-        const n = new Set(s);
-        n.delete(id);
-        return n;
-      });
+      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
     }
   }
-
   async function unpick(id) {
     if (!id) return;
+    setActionError("");
     setBusyIds((s) => new Set([...s, id]));
     try {
       await apiUnpickSignup(id);
@@ -251,14 +306,9 @@ export default function useRaidDetail(raidId) {
         prev.map((s) => (s.id === id ? { ...s, status: "SIGNUPED", saved: false } : s))
       );
     } catch (e) {
-      console.error("unpick failed", e);
-      setErr(e?.message || "UNPICK_FAILED");
+      setActionError(e?.message || "UNPICK_FAILED");
     } finally {
-      setBusyIds((s) => {
-        const n = new Set(s);
-        n.delete(id);
-        return n;
-      });
+      setBusyIds((s) => { const n = new Set(s); n.delete(id); return n; });
     }
   }
 
@@ -267,9 +317,13 @@ export default function useRaidDetail(raidId) {
     grouped,
     caps,
     counts,
+    checklist,
     canManage,
     loading,
-    error,
+    // Fehler getrennt herausgeben:
+    loadError,
+    actionError,
+    clearActionError,
     pick,
     unpick,
     busyIds,

@@ -1,94 +1,68 @@
 // src/frontend/features/my-raids/pages/MyRaids.jsx
-import React, { useEffect, useState } from "react";
-import { apiGet } from "../../../app/api/client.js";
+import React from "react";
+import useMyRaids from "../hooks/useMyRaids.js";
+import MyRaidCard from "../components/MyRaidCard.jsx";
+
+function Section({ title, count, children }) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-zinc-200">{title}</h3>
+        <div className="text-xs text-zinc-400">{count} Einträge</div>
+      </div>
+      {children}
+    </div>
+  );
+}
 
 export default function MyRaidsPage() {
-  const [data, setData] = useState({
-    ok: true,
-    userId: null,
-    upcoming: { rostered: [], signups: [] },
-    past: { rostered: [], signups: [] },
-  });
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState(null);
+  const { loading, error, upcoming, past } = useMyRaids();
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const j = await apiGet("/api/users/me/raids");
-        if (alive) {
-          setData({
-            ok: !!j?.ok,
-            userId: j?.userId ?? null,
-            upcoming: j?.upcoming ?? { rostered: [], signups: [] },
-            past: j?.past ?? { rostered: [], signups: [] },
-          });
-        }
-      } catch (e) {
-        if (alive) setErr(String(e?.message || e));
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 text-zinc-300">
+        Lade …
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-6 text-rose-300 whitespace-pre-wrap">
+        Fehler beim Laden von My Raids: {String(error?.message || error)}
+      </div>
+    );
+  }
 
   return (
-    <section className="card">
-      <h2>Meine Raids</h2>
+    <div className="space-y-4">
+      <Section title="Geplant (Roster)" count={upcoming.length}>
+        {upcoming.length === 0 ? (
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-sm text-zinc-400">
+            Keine kommenden Roster-Einsätze.
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {upcoming.map((it) => (
+              <MyRaidCard key={`${it.raidId}-${it.date}`} item={it} />
+            ))}
+          </div>
+        )}
+      </Section>
 
-      {loading && <p className="hint">Lade…</p>}
-      {err && <p className="hint">Fehler: {err}</p>}
-
-      {!loading && !err && (
-        <div className="grid">
-          <Block title="Demnächst – Im Roster" items={data.upcoming.rostered} />
-          <Block title="Demnächst – Angemeldet" items={data.upcoming.signups} />
-          <Block title="Vergangenheit – Im Roster" items={data.past.rostered} />
-          <Block title="Vergangenheit – Angemeldet" items={data.past.signups} />
-        </div>
-      )}
-    </section>
+      <Section title="Vergangene Roster" count={past.length}>
+        {past.length === 0 ? (
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-sm text-zinc-400">
+            Noch keine vergangenen Roster-Einsätze.
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {past.map((it) => (
+              <MyRaidCard key={`${it.raidId}-${it.date}`} item={it} />
+            ))}
+          </div>
+        )}
+      </Section>
+    </div>
   );
-}
-
-function Block({ title, items }) {
-  return (
-    <article className="card">
-      <h3>{title}</h3>
-      {Array.isArray(items) && items.length ? (
-        <ul>
-          {items.map((it) => (
-            <li key={it.id || `${it.raidId}-${it.charId || it.userId || Math.random()}`}>
-              <Line it={it} />
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="hint">Keine Einträge.</p>
-      )}
-    </article>
-  );
-}
-
-function Line({ it }) {
-  // Unterstützt einfache Strukturen wie:
-  // { raidId, title, date, difficulty, lootType, status, role, charName, itemLevel }
-  const date = it.date ? new Date(it.date) : null;
-  const dateStr = date && isFinite(date) ? date.toLocaleString("de-DE") : null;
-
-  const bits = [
-    it.title,
-    it.difficulty,
-    it.lootType,
-    dateStr,
-    it.role,
-    it.charName ? `(${it.charName}${it.itemLevel ? ` • ${it.itemLevel}ilvl` : ""})` : null,
-    it.status,
-  ].filter(Boolean);
-
-  return <span className="hint">{bits.join(" • ")}</span>;
 }

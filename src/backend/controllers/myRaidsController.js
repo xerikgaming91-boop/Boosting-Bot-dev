@@ -1,32 +1,11 @@
 // src/backend/controllers/myRaidsController.js
-/**
- * MyRaids Controller (MVC – dünn, Service-zentriert)
- *
- * Erwartete Routen (typisch in routes/myRaidsRoutes.js):
- *   GET /api/my-raids            → listAll (upcoming + past)
- *   GET /api/my-raids/upcoming   → listUpcoming
- *   GET /api/my-raids/past       → listPast
- *
- * Service: src/backend/services/myRaidsService.js
- *   - getForUser(discordId) => { upcoming: [...], past: [...] }
- */
+const svc = require("../services/myRaidsService.js");
 
-const svc = require("../services/myRaidsService");
-
-function requireAuthLocal(req, res) {
-  if (!req.user) {
-    res.status(401).json({ ok: false, error: "UNAUTHENTICATED" });
-    return false;
-  }
-  return true;
-}
-
-/** GET /api/my-raids → kombiniert upcoming & past */
+// /api/my-raids → upcoming + past Buckets zurückgeben
 async function listAll(req, res) {
-  if (!requireAuthLocal(req, res)) return;
   try {
+    if (!req.user) return res.status(401).json({ ok: false, error: "UNAUTHENTICATED" });
     const data = await svc.getForUser(req.user.discordId);
-    // erwartete Struktur: { upcoming: [...], past: [...] }
     return res.json({ ok: true, ...data });
   } catch (e) {
     console.error("[myRaids/listAll] error:", e);
@@ -34,10 +13,10 @@ async function listAll(req, res) {
   }
 }
 
-/** GET /api/my-raids/upcoming */
+// /api/my-raids/upcoming
 async function listUpcoming(req, res) {
-  if (!requireAuthLocal(req, res)) return;
   try {
+    if (!req.user) return res.status(401).json({ ok: false, error: "UNAUTHENTICATED" });
     const { upcoming } = await svc.getForUser(req.user.discordId);
     return res.json({ ok: true, upcoming });
   } catch (e) {
@@ -46,10 +25,10 @@ async function listUpcoming(req, res) {
   }
 }
 
-/** GET /api/my-raids/past */
+// /api/my-raids/past
 async function listPast(req, res) {
-  if (!requireAuthLocal(req, res)) return;
   try {
+    if (!req.user) return res.status(401).json({ ok: false, error: "UNAUTHENTICATED" });
     const { past } = await svc.getForUser(req.user.discordId);
     return res.json({ ok: true, past });
   } catch (e) {
@@ -58,8 +37,4 @@ async function listPast(req, res) {
   }
 }
 
-module.exports = {
-  listAll,
-  listUpcoming,
-  listPast,
-};
+module.exports = { listAll, listUpcoming, listPast };
