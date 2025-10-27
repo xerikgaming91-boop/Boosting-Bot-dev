@@ -35,6 +35,7 @@ function labelLoot(l) {
 
 /* ---------- Lead-Label ---------- */
 function preferLeadName(raid) {
+  // benutze alles, was der Backend-Controller evtl. liefert
   return raid?.leadDisplayName || raid?.leadUsername || raid?.lead || "-";
 }
 
@@ -140,9 +141,9 @@ export default function useRaidDetail(raidId) {
   const [preset, setPreset] = useState(null);
   const [signups, setSignups] = useState([]);
 
-  // ⬇️ getrennte Fehlerzustände:
-  const [loadError, setLoadError] = useState("");     // nur für initiales Laden
-  const [actionError, setActionError] = useState(""); // für Pick/Unpick etc.
+  // Fehlerzustände trennen
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
 
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -225,27 +226,49 @@ export default function useRaidDetail(raidId) {
     };
   }, [raid]);
 
+  // 👉 wichtig: hier die Objekte so aufbereiten, dass Anzeige wirklich DisplayName bevorzugt
   const grouped = useMemo(() => {
     const base = () => ({ tanks: [], heals: [], dps: [], loot: [] });
     const g = { saved: base(), open: base() };
+
     (signups || []).forEach((s) => {
       const k = roleKey(s.type);
       const picked = s.saved || U(s.status) === "PICKED";
+
+      // Daten aus Signup + Char + User ziehen
+      const c = s.char || {};
+      const whoChar =
+        c?.name ? `${c.name}${c.realm ? "-" + c.realm : ""}` : null;
+
       const item = {
         id: s.id,
-        who: s.char?.name
-          ? `${s.char.name}${s.char.realm ? "-" + s.char.realm : ""}`
-          : (s.displayName || s.userId || "-"),
-        classLabel: s.char?.class || s.class || "",
+        // Anzeige-Felder (für UI)
+        displayName: s.displayName || s.user?.displayName || s.userDisplayName || null,
+        username: s.username || s.user?.username || null,
+        who: whoChar || s.displayName || s.user?.displayName || s.userId || "-", // Fallback
+        // Verlinkungen / Detail-Infos
+        userId: s.userId || null,
+        user: s.user || null,
+        char: s.char || null,
+        charName: c.name || null,
+        charRealm: c.realm || null,
+        classLabel: c.class || s.class || "",
+        specLabel: c.spec || s.spec || "",
+        itemLevel: c.itemLevel ?? null,
+        wclUrl: c.wclUrl || null,
+        region: c.region || s.region || "eu",
+
+        // Meta
         roleLabel: U(s.type || "-"),
-        itemLevel: s.char?.itemLevel ?? null,
         note: s.note || "",
         saved: !!picked,
         statusLabel: U(s.status || "-"),
       };
+
       if (picked) g.saved[k].push(item);
       else g.open[k].push(item);
     });
+
     return g;
   }, [signups]);
 
@@ -320,7 +343,6 @@ export default function useRaidDetail(raidId) {
     checklist,
     canManage,
     loading,
-    // Fehler getrennt herausgeben:
     loadError,
     actionError,
     clearActionError,

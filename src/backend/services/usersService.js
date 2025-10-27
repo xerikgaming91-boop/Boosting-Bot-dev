@@ -13,8 +13,14 @@ async function findByDiscordId(discordId) {
   return users.findByDiscordId(discordId);
 }
 
+// ✨ NEU: Liste inkl. Chars & Raid-Historie
+async function listWithDetails(q) {
+  return users.findManyWithDetails({ q, limit: 500, historyTake: 20 });
+}
+
 module.exports = {
   getLeads,
   upsertFromDiscord,
   findByDiscordId,
+  listWithDetails,
 };

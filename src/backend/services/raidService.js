@@ -42,12 +42,14 @@ async function attachLeadDisplayNames(list) {
 }
 
 async function list(opts = {}) {
+  // opts wird direkt ans Model weitergereicht (unterstützt z.B. withPreset)
   const items = await raids.findMany(opts);
   return attachLeadDisplayNames(items);
 }
 
 async function getById(id) {
-  const raid = await raids.findById(id);
+  // ✨ Detail lädt das Preset gleich mit
+  const raid = await raids.findById(id, { withPreset: true });
   if (!raid) return null;
 
   let leadDisplayName = null;

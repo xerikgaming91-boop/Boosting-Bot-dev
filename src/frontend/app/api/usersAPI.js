@@ -1,5 +1,5 @@
 // src/frontend/app/api/usersAPI.js
-// Frontend-HTTP Wrapper für User/Leads
+// Frontend-HTTP Wrapper für User/Leads/Adminliste
 
 const API_BASE = import.meta?.env?.VITE_API_BASE || "";
 
@@ -7,7 +7,6 @@ const API_BASE = import.meta?.env?.VITE_API_BASE || "";
 async function http(path, opts = {}) {
   const method = (opts.method || "GET").toUpperCase();
 
-  // Cache-Bust nur für GET
   let url = `${API_BASE}/api${path}`;
   if (method === "GET") {
     const sep = url.includes("?") ? "&" : "?";
@@ -26,9 +25,7 @@ async function http(path, opts = {}) {
     ...opts,
   });
 
-  // 304 kann in Dev über Proxy passieren – wie „ok ohne Body“ behandeln
   if (res.status === 304) return {};
-
   const isJson = res.headers.get("content-type")?.includes("application/json");
   const body = isJson ? await res.json().catch(() => ({})) : null;
 
@@ -51,46 +48,9 @@ export async function apiGetLeads() {
   return http(`/users/leads`, { method: "GET" });
 }
 
-/**
- * Users-Liste
- * Erwartetes Format: { ok, users } oder { ok, list }
- * Fallback: leeres Array
- */
-export async function apiListUsers() {
-  const data = await http(`/users`, { method: "GET" });
-  if (Array.isArray(data?.users)) return data.users;
-  if (Array.isArray(data?.list)) return data.list;
-  return [];
-}
-
-/**
- * Rollen/Level eines Users updaten.
- * Wir versuchen zuerst PATCH /api/users/:id/roles
- * und fallen auf PATCH /api/users/:id zurück, falls dein Backend das so erwartet.
- *
- * @param {string|number} id  Discord-ID oder interne ID (je nach Backend)
- * @param {object} patch      z.B. { isRaidlead: true, isAdmin: false, roleLevel: 1 }
- * @returns {object|true}     aktualisierter User oder true
- */
-export async function apiUpdateUserRoles(id, patch) {
-  if (id === undefined || id === null) throw new Error("id_required");
-
-  // 1) Bevorzugt: dedizierter Roles-Endpunkt
-  try {
-    const data = await http(`/users/${id}/roles`, {
-      method: "PATCH",
-      body: JSON.stringify(patch ?? {}),
-    });
-    // Mögliche Antworten: { ok, user } oder { ok, updated }
-    return data?.user || data?.updated || true;
-  } catch (e) {
-    if (e?.status !== 404) throw e;
-  }
-
-  // 2) Fallback: direktes PATCH auf den User
-  const data = await http(`/users/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(patch ?? {}),
-  });
-  return data?.user || data?.updated || true;
+/** ✨ Adminliste inkl. Chars & Historie – { ok, users } */
+export async function apiListUsers(q = "") {
+  const qs = q ? `?q=${encodeURIComponent(q)}` : "";
+  const data = await http(`/users${qs}`, { method: "GET" });
+  return Array.isArray(data?.users) ? data.users : [];
 }

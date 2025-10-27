@@ -2,7 +2,7 @@
 /**
  * Raids Controller (CRUD ohne Signup/Pick)
  * - Reads laufen über Service (liefert leadDisplayName)
- * - Writes nutzen direkt das Model + Discord-Sync
+ * - Writes nutzen das Model, anschließend wird der Read-Response angereichert zurückgegeben
  */
 
 const raidService = require("../services/raidService.js");
@@ -59,7 +59,8 @@ function buildAutoTitle({ instance = DEFAULT_INSTANCE, difficulty = "Heroic", lo
 /** GET /api/raids */
 async function list(_req, res) {
   try {
-    const rows = await raidService.list({ orderBy: [{ date: "asc" }, { id: "asc" }] });
+    // Preset im Listing nur laden, wenn du es brauchst – hier: mitladen
+    const rows = await raidService.list({ orderBy: [{ date: "asc" }, { id: "asc" }], withPreset: true });
     return res.json({ ok: true, raids: rows });
   } catch (e) {
     console.error("[raids/list]", e);
@@ -74,7 +75,7 @@ async function getOne(req, res) {
     if (!Number.isFinite(id)) {
       return res.status(400).json({ ok: false, error: "INVALID_ID", message: "Ungültige Raid-ID." });
     }
-    const raid = await raidService.getById(id);
+    const raid = await raidService.getById(id); // lädt Preset & leadDisplayName
     if (!raid) return res.status(404).json({ ok: false, error: "NOT_FOUND", message: "Raid wurde nicht gefunden." });
     return res.json({ ok: true, raid });
   } catch (e) {
@@ -150,7 +151,9 @@ async function create(req, res) {
     // Discord Bot sync (nicht kritisch)
     try { await discordBot.syncRaid(saved); } catch (e) { console.warn("[discord/syncRaid:create]", e?.message || e); }
 
-    return res.status(201).json({ ok: true, raid: saved });
+    // ✨ Enrich für konsistenten Response
+    const enriched = await raidService.getById(saved.id);
+    return res.status(201).json({ ok: true, raid: enriched });
   } catch (e) {
     console.error("[raids/create]", e);
     return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
@@ -210,7 +213,9 @@ async function update(req, res) {
     const saved = await raids.update(id, patch);
     try { await discordBot.syncRaid(saved); } catch (e) { console.warn("[discord/syncRaid:update]", e?.message || e); }
 
-    return res.json({ ok: true, raid: saved });
+    // ✨ Enrich für konsistenten Response
+    const enriched = await raidService.getById(saved.id);
+    return res.json({ ok: true, raid: enriched });
   } catch (e) {
     console.error("[raids/update]", e);
     if (e?.code === "P2025") return res.status(404).json({ ok: false, error: "NOT_FOUND", message: "Raid wurde nicht gefunden." });

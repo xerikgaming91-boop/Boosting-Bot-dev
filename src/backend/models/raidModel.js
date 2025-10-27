@@ -92,7 +92,7 @@ async function remove(id) {
 module.exports = {
   findMany,
   findOne,
-  findById, // 👈 neu exportiert
+  findById, // 👈 Alias
   create,
   update,
   remove,

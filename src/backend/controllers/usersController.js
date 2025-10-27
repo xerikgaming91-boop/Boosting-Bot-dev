@@ -1,5 +1,5 @@
 // src/backend/controllers/usersController.js
-// Users Controller – /api/users/me + /api/users/leads
+// Users Controller – Session, Leads & Admin-Liste
 
 const authService = require("../services/authService.js");
 const usersService = require("../services/usersService.js");
@@ -8,18 +8,14 @@ const usersService = require("../services/usersService.js");
  * GET /api/users/me
  * - liest den eingeloggten User aus der Session
  * - refresht Rollen/Flags live via Discord (ensureFreshSession)
- * - speichert die aktualisierten Flags zurück in die Session
  */
 async function getMe(req, res) {
   try {
     const cur = req?.session?.user || null;
-    if (!cur) {
-      return res.json({ ok: true, user: null });
-    }
+    if (!cur) return res.json({ ok: true, user: null });
 
     const fresh = (await authService.ensureFreshSession(cur)) || cur;
 
-    // Session aktualisieren (schreibt keine Secrets)
     req.session.user = {
       id: fresh.id || cur.id || null,
       discordId: fresh.discordId || cur.discordId || null,
@@ -36,16 +32,12 @@ async function getMe(req, res) {
     return res.json({ ok: true, user: req.session.user });
   } catch (e) {
     console.error("[users/getMe]", e);
-    // Im Fehlerfall nicht hart failen – liefere mindestens die Session zurück
     const cur = req?.session?.user || null;
     return res.json({ ok: true, user: cur });
   }
 }
 
-/**
- * GET /api/users/leads
- * - liefert alle Raidleads (aus DB, nicht live von Discord)
- */
+/** GET /api/users/leads – Liste der Raidleads */
 async function listLeads(_req, res) {
   try {
     const raw = await usersService.getLeads();
@@ -62,4 +54,24 @@ async function listLeads(_req, res) {
   }
 }
 
-module.exports = { getMe, listLeads };
+/**
+ * GET /api/users
+ * Owner/Admin only – Liste inkl. Chars & Raid-Historie (letzte 20)
+ * Query: ?q=...  (Name/Username/DiscordID)
+ */
+async function listAll(req, res) {
+  try {
+    const q = typeof req.query?.q === "string" ? req.query.q.trim() : "";
+    const list = await usersService.listWithDetails(q);
+    return res.json({ ok: true, users: list });
+  } catch (e) {
+    console.error("[users/listAll]", e);
+    return res.status(500).json({ ok: false, error: "SERVER_ERROR" });
+  }
+}
+
+module.exports = {
+  getMe,
+  listLeads,
+  listAll,
+};

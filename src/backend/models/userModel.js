@@ -1,9 +1,8 @@
 // src/backend/models/userModel.js
-// Prisma-Model-Layer für Discord-User
-
 const { prisma } = require("../prismaClient");
 
-/** Einheitliches API-Shape */
+/* ------------------------------ Mappers ------------------------------ */
+
 function mapBase(u) {
   if (!u) return null;
   return {
@@ -13,7 +12,6 @@ function mapBase(u) {
     username: u.username || null,
     avatarUrl: u.avatarUrl || null,
 
-    // Rollen/Flags
     isOwner: !!u.isOwner,
     isAdmin: !!u.isAdmin,
     isRaidlead: !!u.isRaidlead,
@@ -21,13 +19,53 @@ function mapBase(u) {
     highestRole: u.highestRole ?? null,
     rolesCsv: u.rolesCsv ?? null,
 
-    // Timestamps (falls vorhanden)
     createdAt: u.createdAt ?? null,
     updatedAt: u.updatedAt ?? null,
   };
 }
 
-/* ------------------------------- Reads ---------------------------------- */
+function mapWithDetails(u) {
+  const base = mapBase(u);
+  if (!base) return null;
+
+  const chars = (u.chars || []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    realm: c.realm,
+    class: c.class,
+    spec: c.spec,
+    itemLevel: c.itemLevel,
+    rioScore: c.rioScore,
+    wclUrl: c.wclUrl,
+    updatedAt: c.updatedAt,
+  }));
+
+  const history = (u.signups || [])
+    .map((s) => ({
+      id: s.id,
+      raidId: s.raidId,
+      date: s.raid?.date || null,
+      raidTitle: s.raid?.title || null,
+      status: s.status,
+      type: s.type,
+      saved: s.saved,
+      char: s.char
+        ? {
+            id: s.char.id,
+            name: s.char.name,
+            realm: s.char.realm,
+            class: s.char.class,
+            spec: s.char.spec,
+            itemLevel: s.char.itemLevel,
+          }
+        : null,
+    }))
+    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+  return { ...base, chars, history };
+}
+
+/* ------------------------------- Reads ------------------------------- */
 
 async function findMany(opts = {}) {
   const {
@@ -60,6 +98,42 @@ async function findMany(opts = {}) {
   return rows.map(mapBase);
 }
 
+async function findManyWithDetails(opts = {}) {
+  const { q, limit = 250, historyTake = 20 } = opts || {};
+
+  // ❌ KEIN 'mode: "insensitive"' – SQLite unterstützt das Flag nicht in Prisma.
+  const where = q
+    ? {
+        OR: [
+          { displayName: { contains: q } },
+          { username: { contains: q } },
+          { discordId: { contains: q } },
+        ],
+      }
+    : undefined;
+
+  const rows = await prisma.user.findMany({
+    where,
+    take: limit,
+    orderBy: [{ displayName: "asc" }, { username: "asc" }],
+    include: {
+      chars: {
+        orderBy: [{ itemLevel: "desc" }, { updatedAt: "desc" }],
+      },
+      signups: {
+        take: historyTake,
+        orderBy: { createdAt: "desc" },
+        include: {
+          raid: true,
+          char: true,
+        },
+      },
+    },
+  });
+
+  return rows.map(mapWithDetails);
+}
+
 async function findUnique(where) {
   const u = await prisma.user.findUnique({
     where,
@@ -86,7 +160,6 @@ async function findByDiscordId(discordId) {
   return findUnique({ discordId: String(discordId) });
 }
 
-/** Nur Leads (isRaidlead = true) */
 async function findLeads() {
   const rows = await prisma.user.findMany({
     where: { isRaidlead: true },
@@ -105,7 +178,7 @@ async function findLeads() {
   return rows.map(mapBase);
 }
 
-/* ------------------------------ Writes ---------------------------------- */
+/* ------------------------------ Writes ------------------------------- */
 
 async function create(data) {
   const u = await prisma.user.create({ data });
@@ -130,19 +203,8 @@ async function removeByDiscordId(discordId) {
   return remove({ discordId: String(discordId) });
 }
 
-/**
- * Upsert vom Discord-Login:
- * - keyed by discordId (muss in Prisma als unique definiert sein; falls nicht, bitte ergänzen)
- * - schreibt Meta/Flags, ohne sensible Tokens zu speichern
- */
 async function upsertFromDiscord(payload) {
   const discordId = String(payload.discordId);
-  // Fallback ohne Prisma-upsert (funktioniert auch, wenn discordId in der DB nicht unique ist)
-  const existing = await prisma.user.findUnique({
-    where: { discordId },
-    select: { id: true },
-  }).catch(() => null);
-
   const data = {
     username: payload.username ?? undefined,
     displayName: payload.displayName ?? undefined,
@@ -155,29 +217,24 @@ async function upsertFromDiscord(payload) {
     isRaidlead: payload.isRaidlead ?? undefined,
   };
 
-  let row;
-  if (existing) {
-    row = await prisma.user.update({ where: { discordId }, data });
-  } else {
-    row = await prisma.user.create({ data: { discordId, ...data } });
-  }
+  const row = await prisma.user.upsert({
+    where: { discordId },
+    create: { discordId, ...data },
+    update: data,
+  });
   return mapBase(row);
 }
 
 module.exports = {
-  // reads
   findMany,
+  findManyWithDetails,
   findUnique,
   findByDiscordId,
   findLeads,
-
-  // writes
   create,
   update,
   updateByDiscordId,
   remove,
   removeByDiscordId,
-
-  // upsert for OAuth flow
   upsertFromDiscord,
 };

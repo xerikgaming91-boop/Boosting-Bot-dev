@@ -4,6 +4,7 @@ import { apiUpdateRaid } from "../../../app/api/raidsAPI.js";
 import { apiListPresets } from "../../../app/api/presetsAPI.js";
 import { apiGetLeads } from "../../../app/api/usersAPI.js";
 
+// Hilfsfunktionen
 const U = (x) => String(x || "").toUpperCase();
 const L = (x) => String(x || "").toLowerCase();
 
@@ -19,16 +20,22 @@ function toLocalInputValue(dateLike) {
   const mi = pad(d.getMinutes());
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
-function toUtcIso(input) {
-  // input ist "YYYY-MM-DDTHH:mm" in lokaler Zeit -> in ISO in UTC konvertieren
+
+// ⚠️ FIX: Input "YYYY-MM-DDTHH:mm" als *lokale* Zeit parsen und direkt zu UTC konvertieren
+function parseLocalDateTime(input) {
   if (!input) return null;
-  const d = new Date(input);
-  if (!isFinite(d)) return null;
-  return new Date(
-    Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), 0, 0)
-  ).toISOString();
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(input);
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m.map(Number);
+  // new Date(Y, M, D, H, M) => interpretiert als *lokale* Zeit (berücksichtigt DST!)
+  return new Date(y, mo - 1, d, h, mi, 0, 0);
+}
+function toUtcIso(input) {
+  const local = parseLocalDateTime(input);
+  return local ? local.toISOString() : null;
 }
 
+// Dropdown-Optionen
 const DIFF_OPTIONS = [
   { value: "HC", label: "Heroic" },
   { value: "MYTHIC", label: "Mythic" },
@@ -41,60 +48,85 @@ const LOOT_ALL = [
   { value: "saved", label: "Saved" },
 ];
 
+// Normalizer (macht die Form robust gegen unterschiedliche API-Shapes)
+function normalizePresets(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw.presets)) return raw.presets;
+  if (Array.isArray(raw.data)) return raw.data;
+  return [];
+}
+function normalizeLeads(raw) {
+  const arr = Array.isArray(raw) ? raw
+    : Array.isArray(raw?.leads) ? raw.leads
+    : Array.isArray(raw?.users) ? raw.users
+    : Array.isArray(raw?.data) ? raw.data
+    : [];
+  return arr.map((u) => ({
+    id: u.discordId || u.id || u.userId || "",
+    label: u.displayName || u.username || u.name || u.discordId || "",
+  })).filter(x => x.id);
+}
+
 export default function RaidEditForm({ raid, onSaved, onCancel }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  // Form-States aus bestehendem Raid
+  // ⚙️ Vorbelegung aus bestehendem Raid
   const [dateLocal, setDateLocal] = useState(toLocalInputValue(raid?.date));
   const [difficulty, setDifficulty] = useState(raid?.difficulty || "HC");
   const [lootType, setLootType] = useState(raid?.lootType || "vip");
   const [bosses, setBosses] = useState(raid?.bosses ?? 0);
-  const [lead, setLead] = useState(raid?.lead || "");
-  const [presetId, setPresetId] = useState(raid?.presetId ?? "");
+  const [lead, setLead] = useState(raid?.lead ?? "");          // Discord-ID
+  const [presetId, setPresetId] = useState(raid?.presetId ?? ""); // Zahl oder ""
 
   // Referenzdaten
   const [presets, setPresets] = useState([]);
   const [leads, setLeads] = useState([]);
 
   const isMythic = useMemo(() => U(difficulty) === "MYTHIC", [difficulty]);
-  const lootOptions = useMemo(() => {
-    // gleich wie im CreateForm: bei Mythic ggf. Lootauswahl fixiert/deaktiviert
-    return LOOT_ALL;
-  }, []);
+  const lootOptions = useMemo(() => LOOT_ALL, []);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [p, l] = await Promise.all([
+        const [pRes, lRes] = await Promise.all([
           apiListPresets().catch(() => []),
           apiGetLeads().catch(() => []),
         ]);
         if (!alive) return;
-        setPresets(Array.isArray(p) ? p : []);
-        setLeads(Array.isArray(l) ? l : []);
+        setPresets(normalizePresets(pRes));
+        setLeads(normalizeLeads(lRes));
       } catch {
-        /* noop */
+        /* ignore */
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
   async function submit() {
     setErr("");
     setLoading(true);
     try {
-      // Patch vorbereiten
+      // ❗ Bestehende Werte als Fallback verwenden, wenn nichts geändert wurde
+      const nextPresetId =
+        presetId === "" || presetId === undefined || presetId === null
+          ? (raid?.presetId ?? null)
+          : Number(presetId);
+
+      const nextLead =
+        lead === "" || lead === undefined || lead === null
+          ? (raid?.lead || null)
+          : String(lead);
+
       const patch = {
-        date: toUtcIso(dateLocal), // ISO UTC
-        difficulty: U(difficulty),
-        lootType: L(lootType),
-        bosses: Number.isFinite(Number(bosses)) ? Number(bosses) : 0,
-        lead: lead || null,
-        presetId: presetId === "" ? null : Number(presetId),
+        date: toUtcIso(dateLocal) || raid?.date || null,
+        difficulty: U(difficulty || raid?.difficulty || "HC"),
+        lootType: L(lootType || raid?.lootType || "vip"),
+        bosses: Number.isFinite(Number(bosses)) ? Number(bosses) : (raid?.bosses ?? 0),
+        lead: nextLead,              // Discord-ID
+        presetId: nextPresetId,      // Zahl oder null
       };
 
       const updated = await apiUpdateRaid(raid.id, patch);
@@ -131,7 +163,7 @@ export default function RaidEditForm({ raid, onSaved, onCancel }) {
         </div>
       )}
 
-      {/* Titel (Read-only Preview) */}
+      {/* Titel (read-only) */}
       <div className="lg:col-span-3">
         <label className="mb-1 block text-xs text-zinc-400">Titel</label>
         <input
@@ -163,9 +195,7 @@ export default function RaidEditForm({ raid, onSaved, onCancel }) {
           onChange={(e) => setDifficulty(e.target.value)}
         >
           {DIFF_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
       </div>
@@ -179,10 +209,8 @@ export default function RaidEditForm({ raid, onSaved, onCancel }) {
           onChange={(e) => setLootType(e.target.value)}
           disabled={isMythic}
         >
-          {lootOptions.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
+          {LOOT_ALL.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
       </div>
@@ -207,10 +235,12 @@ export default function RaidEditForm({ raid, onSaved, onCancel }) {
           value={presetId === null ? "" : presetId}
           onChange={(e) => setPresetId(e.target.value)}
         >
-          <option value="">— Keins —</option>
+          <option value="">
+            — {raid?.presetId ? `Aktuell: #${raid.presetId}` : "Keins"} —
+          </option>
           {presets.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name}
+              {p.name ?? `Preset #${p.id}`}
             </option>
           ))}
         </select>
@@ -224,15 +254,17 @@ export default function RaidEditForm({ raid, onSaved, onCancel }) {
           value={lead || ""}
           onChange={(e) => setLead(e.target.value)}
         >
-          <option value="">— Unverändert —</option>
+          <option value="">
+            — {raid?.leadDisplayName || raid?.leadUsername || raid?.lead || "Unverändert"} —
+          </option>
           {leads.map((u) => (
-            <option key={u.discordId} value={u.discordId}>
-              {u.displayName || u.username || u.discordId}
+            <option key={u.id} value={u.id}>
+              {u.label}
             </option>
           ))}
         </select>
         <p className="mt-1 text-xs text-zinc-500">
-          Anzeige nutzt DisplayName (Fallback Username/ID). Server speichert die Discord-ID.
+          Anzeige nutzt DisplayName (Fallback Username/ID). Gespeichert wird die Discord-ID.
         </p>
       </div>
 
