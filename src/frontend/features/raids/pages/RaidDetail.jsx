@@ -44,7 +44,7 @@ export default function RaidDetail() {
       pick={pick}
       unpick={unpick}
       busyIds={busyIds}
-      onReload={onReload}          {/* ✅ NEU: Reload-Funktion wird durchgereicht */}
+      onReload={onReload}        
     />
   );
 }
