@@ -62,7 +62,15 @@ function mapWithDetails(u) {
     }))
     .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
-  return { ...base, chars, history };
+  // 🔹 NEU: Strike-Anzahl mitliefern (nur Erweiterung, keine Removals)
+  const strikeCount =
+    (u._count && typeof u._count.strikes === "number"
+      ? u._count.strikes
+      : Array.isArray(u.strikes)
+      ? u.strikes.length
+      : 0) || 0;
+
+  return { ...base, chars, history, strikeCount };
 }
 
 /* ------------------------------- Reads ------------------------------- */
@@ -101,7 +109,7 @@ async function findMany(opts = {}) {
 async function findManyWithDetails(opts = {}) {
   const { q, limit = 250, historyTake = 20 } = opts || {};
 
-  // ❌ KEIN 'mode: "insensitive"' – SQLite unterstützt das Flag nicht in Prisma.
+  // Hinweis: SQLite → kein mode: "insensitive"
   const where = q
     ? {
         OR: [
@@ -117,17 +125,15 @@ async function findManyWithDetails(opts = {}) {
     take: limit,
     orderBy: [{ displayName: "asc" }, { username: "asc" }],
     include: {
-      chars: {
-        orderBy: [{ itemLevel: "desc" }, { updatedAt: "desc" }],
-      },
+      // bestehend
+      chars: { orderBy: [{ itemLevel: "desc" }, { updatedAt: "desc" }] },
       signups: {
         take: historyTake,
         orderBy: { createdAt: "desc" },
-        include: {
-          raid: true,
-          char: true,
-        },
+        include: { raid: true, char: true },
       },
+      // 🔹 NEU: nur Count laden (effizient, keine Daten entfernt)
+      _count: { select: { strikes: true } },
     },
   });
 
