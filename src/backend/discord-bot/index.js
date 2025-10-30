@@ -1,8 +1,9 @@
 // src/backend/discord-bot/index.js
-// Public API: init() + syncRaid()
+// Public API: init(), syncRaid(), postRoster()
 const { getClient } = require("./core/client.js");
 const { ensureHandlersOnce } = require("./modules/signups/interactions.js");
 const { syncRaid } = require("./modules/raids/sync.js");
+const { postRosterMessage } = require("./modules/raids/rosterPost.js");
 
 async function init() {
   const ctx = await getClient();
@@ -11,4 +12,13 @@ async function init() {
   return true;
 }
 
-module.exports = { init, syncRaid };
+/**
+ * Postet ein Roster (nur SAVED Picks) in den Raid-Channel.
+ * @param {number|object} raidOrId
+ * @param {{ pingRoleIds?: string[], pingUserIds?: string[] }} [options]
+ */
+async function postRoster(raidOrId, options = {}) {
+  return postRosterMessage(raidOrId, options);
+}
+
+module.exports = { init, syncRaid, postRoster };

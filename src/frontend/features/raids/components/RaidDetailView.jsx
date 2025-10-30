@@ -8,7 +8,9 @@ import Icon from "../../../shared/components/ClassIcons.jsx";
 
 import RaidEditForm from "./RaidEditForm.jsx";
 
-/* UI-Helfer */
+/* ===========================
+   Kleine UI-Helfer
+   =========================== */
 function Section({ title, children, right }) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
@@ -40,9 +42,10 @@ function RoleHeader({ roleKey, title, suffix }) {
   );
 }
 
-/** ---- Anzeige-Helfer: Namen & Links ---- **/
+/* ===========================
+   Anzeige-Helfer
+   =========================== */
 function primaryDisplayName(s) {
-  // Bevorzugt Discord-Displayname, fällt zurück auf Char-String nur wenn nötig
   return (
     s.displayName ||
     s.signup?.displayName ||
@@ -51,7 +54,7 @@ function primaryDisplayName(s) {
     s.discordDisplayName ||
     s.discordName ||
     s.username ||
-    s.who || // ggf. Char "Name-Realm"
+    s.who ||
     s.charLabel ||
     s.charName ||
     s.name ||
@@ -66,37 +69,46 @@ function charLabel(s) {
   return name || realm || "";
 }
 function buildWclUrl(s) {
-  // 1) direkter Link, falls der Char ihn hat
   const c = s.char || {};
   const direct = s.wclUrl || s.charWclUrl || c.wclUrl;
   if (direct) return direct;
-
-  // 2) ansonsten baue aus Region/Realm/Name
   const region = (s.region || s.charRegion || "eu").toLowerCase();
   const nm = s.charName || s.name || c.name;
   const rm = s.charRealm || s.realm || c.realm;
   if (nm && rm) {
     return `https://www.warcraftlogs.com/character/${encodeURIComponent(region)}/${encodeURIComponent(rm)}/${encodeURIComponent(nm)}`;
   }
-
-  // 3) Fallback: Suchlink mit Displayname
   const term = primaryDisplayName(s) || "";
   if (term) return `https://www.warcraftlogs.com/search/?term=${encodeURIComponent(term)}`;
   return null;
 }
 
-/** ---- Item/Zeilen-Komponente ---- **/
-function Column({
-  roleKey,
-  title,
-  suffix,
-  items,
-  canManage,
-  onPick,
-  onUnpick,
-  busyIds,
-  picked,
-}) {
+/* ===========================
+   Zeilen-/Listen-Komponenten
+   =========================== */
+function SignupLine({ s }) {
+  const c = s?.char || {};
+  const name = c?.name
+    ? `${c.name}${c?.realm ? "-" + c.realm : ""}`
+    : (s?.displayName || s?.userId || "Unbekannt");
+
+  const klass = c?.class || s?.class || "";
+  const spec = c?.spec || s?.spec || "";
+  const itemLevel = c?.itemLevel ?? s?.itemLevel ?? null;
+  const note = s?.note || null;
+
+  return (
+    <li className="text-sm leading-6">
+      <span className="opacity-90">
+        • {klass ? `${name} (${klass}${spec ? " • " + spec : ""})` : `${name}${spec ? " (" + spec + ")" : ""}`}
+      </span>
+      {itemLevel ? <span className="opacity-70"> • ilvl {itemLevel}</span> : null}
+      {note ? <span className="opacity-70"> • {note}</span> : null}
+    </li>
+  );
+}
+
+function Column({ roleKey, title, suffix, items, canManage, onPick, onUnpick, busyIds, picked }) {
   return (
     <div>
       <RoleHeader roleKey={roleKey} title={title} suffix={suffix} />
@@ -111,24 +123,21 @@ function Column({
             const klass = (s.class || s.classLabel || c.class || "").toString().toLowerCase();
             const classIcon = getClassIcon(klass);
             const classAlt = getClassLabel(klass);
-
             const titleName = primaryDisplayName(s);
 
             const parts = [];
             const cl = charLabel(s);
             if (cl) parts.push(cl);
-
             const spec = s.specLabel || s.spec || c.spec;
             if (spec) parts.push(spec);
-
-            const ilvl = s.itemLevel || c.itemLevel;
+            const ilvl = c.itemLevel ?? s.itemLevel;
             if (ilvl) parts.push(`${ilvl} ilvl`);
-
             if (s.roleLabel) parts.push(s.roleLabel);
             if (s.note) parts.push(s.note);
-
             const subtitle = parts.join(" • ");
             const wclUrl = buildWclUrl(s);
+
+            const isBusy = !!busyIds?.has?.(s.id);
 
             return (
               <div
@@ -159,7 +168,7 @@ function Column({
                     <button
                       className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-300 hover:bg-red-500/20 disabled:opacity-50"
                       onClick={() => onUnpick?.(s.id)}
-                      disabled={busyIds?.has?.(s.id)}
+                      disabled={isBusy}
                       title="Aus Roster entfernen"
                     >
                       Unpick
@@ -169,7 +178,7 @@ function Column({
                     <button
                       className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
                       onClick={() => onPick?.(s.id)}
-                      disabled={busyIds?.has?.(s.id)}
+                      disabled={isBusy}
                       title="Zum Roster hinzufügen"
                     >
                       Pick
@@ -185,7 +194,9 @@ function Column({
   );
 }
 
-/** ---- Checklist / Buffs (unverändert) ---- **/
+/* ===========================
+   Checklist / Buffs
+   =========================== */
 const KNOWN_CLASS_BUFFS = {
   mage: ["5% Intellect"],
   priest: ["Stamina"],
@@ -210,13 +221,77 @@ const CORE_BUFF_MATCHERS = {
   dh: [/chaos\s*brand/i],
   shaman: [/windfury/i],
 };
-function normalizeKey(k) {
-  return (k || "").toString().trim().toLowerCase();
-}
+function normalizeKey(k) { return (k || "").toString().trim().toLowerCase(); }
 function joinBuffsText(buffs) {
   return buffs.map((b) => (typeof b.count === "number" ? `${b.label} (${b.count})` : b.label)).join(", ");
 }
 
+/* ===========================
+   Panel: Roster im Discord posten (immer User-Ping)
+   =========================== */
+function PostRosterPanel({ raid }) {
+  const [posting, setPosting] = useState(false);
+  const [resultUrl, setResultUrl] = useState("");
+  const [error, setError] = useState("");
+
+  async function handlePost() {
+    if (!raid?.id) return;
+    setPosting(true);
+    setError("");
+    setResultUrl("");
+
+    try {
+      const res = await fetch("/api/roster/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ raidId: raid.id }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Roster post failed");
+      setResultUrl(data.messageUrl || "");
+    } catch (e) {
+      setError(e?.message || String(e));
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] p-4">
+      <div className="mb-2 text-sm font-semibold text-amber-300">
+        Roster (picked) im Discord posten
+      </div>
+      <div className="mb-3 text-xs text-zinc-300">
+        Beim Posten werden <b>alle gepickten Booster</b> automatisch per <code>@Discord-Tag</code> erwähnt (keine Rollen).
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={handlePost}
+          disabled={posting}
+          className="rounded-2xl bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 shadow hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {posting ? "Poste..." : "Roster posten & Booster pingen"}
+        </button>
+        {resultUrl ? (
+          <a
+            href={resultUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-amber-300 underline hover:text-amber-200"
+          >
+            Zur Discord-Nachricht
+          </a>
+        ) : null}
+        {error ? <span className="text-sm text-red-400">{error}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+/* ===========================
+   Hauptansicht
+   =========================== */
 export default function RaidDetailView({
   raid,
   grouped,
@@ -288,7 +363,7 @@ export default function RaidDetailView({
           <div className="flex items-center gap-3">
             <div className="text-xs text-zinc-400">
               <span className="mr-3">
-                Roster:{" "}
+                Roster (picked):{" "}
                 <b className="text-zinc-100">
                   {rosterTotal}
                   {capTotal != null ? ` / ${capTotal}` : ""}
@@ -348,8 +423,15 @@ export default function RaidDetailView({
         </Section>
       )}
 
-      {/* Roster */}
-      <Section title="Roster (geplant)">
+      {/* Roster posten: pingt IMMER alle gepickten Booster */}
+      {canManage && (
+        <Section title="Roster posten">
+          <PostRosterPanel raid={raid} />
+        </Section>
+      )}
+
+      {/* Roster (picked) */}
+      <Section title="Roster (picked)">
         <div className="grid gap-4 sm:grid-cols-2">
           <Column
             roleKey="tank"
@@ -394,45 +476,13 @@ export default function RaidDetailView({
         </div>
       </Section>
 
-      {/* Signups */}
+      {/* Offene Signups */}
       <Section title="Signups (offen)">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Column
-            roleKey="tank"
-            title="Tanks"
-            suffix={`${counts?.signups?.tanks || 0}`}
-            items={grouped?.open?.tanks || []}
-            canManage={canManage}
-            onPick={pick}
-            busyIds={busyIds}
-          />
-          <Column
-            roleKey="dps"
-            title="DPS"
-            suffix={`${counts?.signups?.dps || 0}`}
-            items={grouped?.open?.dps || []}
-            canManage={canManage}
-            onPick={pick}
-            busyIds={busyIds}
-          />
-          <Column
-            roleKey="heal"
-            title="Healers"
-            suffix={`${counts?.signups?.heals || 0}`}
-            items={grouped?.open?.heals || []}
-            canManage={canManage}
-            onPick={pick}
-            busyIds={busyIds}
-          />
-          <Column
-            roleKey="lootbuddy"
-            title="Lootbuddies"
-            suffix={`${counts?.signups?.loot || 0}`}
-            items={grouped?.open?.loot || []}
-            canManage={canManage}
-            onPick={pick}
-            busyIds={busyIds}
-          />
+          <Column roleKey="tank" title="Tanks" suffix={`${counts?.signups?.tanks || 0}`} items={grouped?.open?.tanks || []} canManage={canManage} onPick={pick} busyIds={busyIds} />
+          <Column roleKey="dps" title="DPS" suffix={`${counts?.signups?.dps || 0}`} items={grouped?.open?.dps || []} canManage={canManage} onPick={pick} busyIds={busyIds} />
+          <Column roleKey="heal" title="Healers" suffix={`${counts?.signups?.heals || 0}`} items={grouped?.open?.heals || []} canManage={canManage} onPick={pick} busyIds={busyIds} />
+          <Column roleKey="lootbuddy" title="Lootbuddies" suffix={`${counts?.signups?.loot || 0}`} items={grouped?.open?.loot || []} canManage={canManage} onPick={pick} busyIds={busyIds} />
         </div>
       </Section>
 
@@ -445,62 +495,23 @@ export default function RaidDetailView({
           </div>
         )}
 
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-300">
-          Wichtige Klassen
-        </div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-300">Wichtige Klassen</div>
         <ImportantOptionalList checklist={checklist} important />
-        <div className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-          Optionale Klassen
-        </div>
+        <div className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">Optionale Klassen</div>
         <ImportantOptionalList checklist={checklist} important={false} />
       </Section>
     </div>
   );
 }
 
+/* ===========================
+   Listen für wichtige/optionale Klassen
+   =========================== */
 function ImportantOptionalList({ checklist, important }) {
   const items = useMemo(() => {
     const classes = Array.isArray(checklist?.classes) ? checklist.classes : [];
     const buffsByClass = new Map();
-    const normalizeKey = (k) => (k || "").toString().trim().toLowerCase();
 
-    const KNOWN_CLASS_BUFFS = {
-      mage: ["5% Intellect"],
-      priest: ["Stamina"],
-      warrior: ["Battle Shout"],
-      druid: ["Mark of the Wild"],
-      monk: ["Mystic Touch"],
-      dh: ["Chaos Brand"],
-      shaman: ["Windfury"],
-      evoker: ["Hero/Lust"],
-      paladin: ["Devotion Aura"],
-      hunter: [],
-      rogue: [],
-      dk: [],
-      warlock: ["Healthstones", "Summon"],
-    };
-    const CORE_BUFF_MATCHERS = {
-      mage: [/intellect/i],
-      priest: [/stamina|ausdauer/i],
-      warrior: [/battle\s*shout|kampfschrei/i],
-      druid: [/mark\s*of\s*the\s*wild|mal\s*der\s*wildnis/i],
-      monk: [/mystic\s*touch/i],
-      dh: [/chaos\s*brand/i],
-      shaman: [/windfury/i],
-    };
-
-    function isClassImportant(klass) {
-      if (klass === "warlock" || klass === "dh") return true;
-      const buffs = buffsByClass.get(klass) || [];
-      const matchers = CORE_BUFF_MATCHERS[klass];
-      if (!matchers || !matchers.length) return false;
-      return buffs.some((b) => matchers.some((rx) => rx.test(b.label || "")));
-    }
-    function joinBuffsText(buffs) {
-      return buffs.map((b) => (typeof b.count === "number" ? `${b.label} (${b.count})` : b.label)).join(", ");
-    }
-
-    // minimale Buff-Liste auffüllen (nur Labels, Anzeigezweck)
     Object.entries(KNOWN_CLASS_BUFFS).forEach(([klass, list]) => {
       if (!buffsByClass.has(klass)) {
         buffsByClass.set(
@@ -518,6 +529,15 @@ function ImportantOptionalList({ checklist, important }) {
       const buffsText = joinBuffsText(buffsByClass.get(key) || []);
       return { key, label, count, icon, buffsText, isImportant: isClassImportant(key) };
     });
+
+    function isImportantFn(klass) {
+      if (klass === "warlock" || klass === "dh") return true;
+      const matchers = CORE_BUFF_MATCHERS[klass];
+      if (!matchers || !matchers.length) return false;
+      const text = (buffsByClass.get(klass) || []).map((b) => b.label).join(" ");
+      return matchers.some((rx) => rx.test(text));
+    }
+    function isClassImportant(klass) { return isImportantFn(klass); }
 
     const filtered = arr
       .filter((c) => c.isImportant === !!important)
